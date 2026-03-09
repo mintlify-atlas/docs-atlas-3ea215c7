@@ -1,0 +1,496 @@
+---
+title: Parametric Insurance
+description: Automated, deterministic drought protection without manual claims
+---
+
+## What is Parametric Insurance?
+
+Parametric insurance is a type of coverage that pays out based on **predetermined trigger events** rather than actual losses. Instead of assessing damage after an event, parametric policies automatically pay when objective, measurable conditions are met.
+
+<CardGroup cols={2}>
+  <Card title="Trigger-Based" icon="bolt">
+    Payouts activate when specific conditions are met (e.g., rainfall < 10mm)
+  </Card>
+  <Card title="No Loss Assessment" icon="ban">
+    No need to prove or document actual crop damage
+  </Card>
+  <Card title="Instant Settlement" icon="clock">
+    Funds transfer automatically within seconds of trigger
+  </Card>
+  <Card title="Fully Transparent" icon="eye">
+    All trigger conditions and data sources are public
+  </Card>
+</CardGroup>
+
+## How AridGuard Implements Parametric Insurance
+
+### Trigger Definition
+
+AridGuard policies use a simple, objective trigger:
+
+<Note>
+  **Trigger Condition**: Monthly rainfall drops below 10mm
+</Note>
+
+This threshold represents severe drought conditions that typically cause significant crop damage in the monitored regions.
+
+```json
+// Configuration in CRE workflow
+{
+  "thresholdRainfall": 10,
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric"
+}
+```
+
+### Data Source
+
+Weather data comes from **OpenWeather API**, a widely-used meteorological service:
+
+- **Coverage**: Global weather data
+- **Frequency**: Updated every 10 minutes
+- **Metrics**: Rainfall (1h, 3h), temperature, humidity, pressure
+- **Reliability**: 99.9% uptime, redundant data centers
+
+<Tip>
+  Production implementations could use multiple weather APIs (NOAA, Weather.com, etc.) and aggregate their data for even greater reliability.
+</Tip>
+
+### Monitoring Frequency
+
+The CRE workflow checks conditions continuously:
+
+```typescript
+// Cron schedule in workflow.yaml
+const config = {
+  schedule: "* * * * *" // Every minute
+}
+
+const cron = new cre.capabilities.CronCapability();
+const handlers = [
+  cre.handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)
+];
+```
+
+<Steps>
+  <Step title="Trigger Fires">
+    Cron capability activates the workflow based on schedule
+  </Step>
+  <Step title="Data Fetch">
+    HTTP capability requests weather data from OpenWeather
+  </Step>
+  <Step title="Aggregation">
+    Median consensus algorithm processes multiple data points
+  </Step>
+  <Step title="Evaluation">
+    Rainfall value compared against threshold (< 10mm)
+  </Step>
+  <Step title="Execution">
+    If threshold met, EVM capability executes payout transaction
+  </Step>
+</Steps>
+
+### Payout Structure
+
+When triggered, payouts are deterministic and immediate:
+
+```solidity
+// Fixed payout multiplier
+function executePayout(bytes32 policyId) external onlyCRE {
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    
+    policy.isActive = false;
+    
+    // Payout is always 10x the premium
+    uint256 payoutAmount = policy.premiumPaid * 10;
+    
+    require(address(this).balance >= payoutAmount, "Insufficient balance");
+    
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+    
+    emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+}
+```
+
+**Payout Characteristics:**
+
+- **Amount**: 10x the premium paid
+- **Speed**: Executes in single transaction (2-5 seconds)
+- **Finality**: Irreversible once confirmed on-chain
+- **Transparency**: `PayoutExecuted` event logged publicly
+
+## Advantages Over Traditional Insurance
+
+### Speed Comparison
+
+<CardGroup cols={2}>
+  <Card title="Traditional Insurance" icon="hourglass">
+    **4-12 weeks**
+    
+    - File claim: 1-2 days
+    - Site inspection: 1-2 weeks
+    - Review process: 2-4 weeks
+    - Negotiation: 1-3 weeks
+    - Payment processing: 3-7 days
+  </Card>
+  <Card title="AridGuard Parametric" icon="rocket">
+    **2-5 seconds**
+    
+    - Drought detected: Instant
+    - Policy lookup: 1 second
+    - Transaction execution: 1-2 seconds
+    - Blockchain confirmation: 2 seconds
+    - Funds in wallet: Instant
+  </Card>
+</CardGroup>
+
+### Cost Comparison
+
+**Traditional Insurance Overhead:**
+
+- Loss adjusters and inspectors
+- Claims processing staff
+- Legal departments
+- Administrative systems
+- Marketing and sales teams
+
+**Total overhead: 40-60% of premiums**
+
+---
+
+**AridGuard Overhead:**
+
+- Smart contract deployment: One-time cost
+- CRE workflow execution: ~$0.01 per check
+- Weather API calls: ~$0.001 per request
+- Gas fees: ~$0.10 per payout transaction
+
+**Total overhead: < 5% of premiums**
+
+<Tip>
+  Lower overhead means lower premiums for farmers and better coverage ratios. A farmer paying $50 gets $500 coverage instead of $200 with traditional insurance.
+</Tip>
+
+### Accessibility Benefits
+
+Parametric insurance makes coverage accessible to underserved markets:
+
+| Traditional Insurance | Parametric Insurance |
+|----------------------|---------------------|
+| High minimum premiums ($500+) | Low minimums ($10+) |
+| Requires bank accounts | Works with crypto wallets |
+| Complex paperwork | Simple click-to-purchase |
+| Credit checks required | No credit checks |
+| Geographic restrictions | Global coverage |
+| Language barriers | Universal smart contracts |
+
+<Note>
+  **Financial Inclusion Impact**: Parametric insurance can extend coverage to 500M+ smallholder farmers globally who currently lack access to agricultural insurance.
+</Note>
+
+## Data Aggregation & Accuracy
+
+### Consensus Median Aggregation
+
+AridGuard uses the CRE SDK's built-in aggregation to ensure data accuracy:
+
+```typescript
+import { consensusMedianAggregation } from "@chainlink/cre-sdk";
+
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  const url = `${config.weatherApiUrl}&appid=${apiKey}`;
+  
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+  
+  if (!ok(response)) {
+    throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+  }
+  
+  const externalResp = json(response) as any;
+  const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+  return rainfall;
+};
+
+const httpCapability = new cre.capabilities.HTTPClient();
+const medianRainfall = httpCapability
+  .sendRequest(runtime, fetchAndParse, consensusMedianAggregation())
+  (runtime.config, apiKey)
+  .result();
+
+runtime.log(`Aggregated median rainfall: ${medianRainfall} mm`);
+```
+
+**How Median Aggregation Works:**
+
+<Steps>
+  <Step title="Multiple Requests">
+    CRE makes parallel requests to weather API from different nodes
+  </Step>
+  <Step title="Collect Responses">
+    Each node returns its rainfall measurement
+  </Step>
+  <Step title="Sort Values">
+    All responses sorted numerically: [5mm, 7mm, 8mm, 9mm, 15mm]
+  </Step>
+  <Step title="Select Median">
+    Middle value selected: **8mm**
+  </Step>
+  <Step title="Outlier Rejection">
+    Anomalies (15mm) automatically excluded
+  </Step>
+</Steps>
+
+**Why Median > Average:**
+
+```
+Scenario: 5 measurements
+Data points: 8mm, 8mm, 9mm, 9mm, 100mm (faulty sensor)
+
+Average: (8+8+9+9+100)/5 = 26.8mm ❌ Incorrect
+Median: [8, 8, 9, 9, 100] → 9mm ✅ Accurate
+```
+
+Median aggregation is **robust against outliers**, making it ideal for real-world data with potential sensor errors or API glitches.
+
+### Data Parsing
+
+OpenWeather API returns structured JSON:
+
+```json
+{
+  "coord": { "lon": 36.0, "lat": 0.05 },
+  "weather": [{ "id": 500, "main": "Rain", "description": "light rain" }],
+  "main": { "temp": 22.5, "humidity": 65 },
+  "rain": { "1h": 2.5 },
+  "dt": 1632150000
+}
+```
+
+AridGuard extracts the 1-hour rainfall measurement:
+
+```typescript
+const externalResp = json(response) as any;
+const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+return rainfall; // Returns 2.5 (mm)
+```
+
+If no rain is detected, the API omits the `rain` field entirely, so we default to `0`.
+
+## Geographic Coverage
+
+### Current Implementation
+
+The demo monitors a fixed location:
+
+```typescript
+// Frontend policy purchase
+args: [5000, 360000] // Lat: 0.05°, Long: 36.0° (Kenya, Rift Valley)
+
+// CRE configuration
+weatherApiUrl: "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric"
+```
+
+### Production Scaling
+
+A production system would support dynamic locations:
+
+<CodeGroup>
+```typescript Frontend (Dynamic)
+// User selects location on map
+const [location, setLocation] = useState({ lat: 0, lng: 0 });
+
+const handlePurchase = () => {
+  writeContract({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    functionName: 'purchasePolicy',
+    args: [
+      Math.round(location.lat * 100), // Scale for storage
+      Math.round(location.lng * 100)
+    ],
+    value: parseEther("0.0001")
+  });
+};
+```
+
+```typescript CRE (Dynamic)
+// Fetch policy coordinates from contract
+const policy = await readContract({
+  address: contractAddress,
+  abi: contractAbi,
+  functionName: 'policies',
+  args: [policyId]
+});
+
+const lat = policy.lat / 100;
+const long = policy.long / 100;
+
+// Construct location-specific API URL
+const weatherApiUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${long}&units=metric`;
+
+const response = sendRequester
+  .sendRequest({ url: weatherApiUrl, method: "GET" })
+  .result();
+```
+</CodeGroup>
+
+This enables global coverage for any farm location with weather data availability.
+
+## Risk Management
+
+### Basis Risk
+
+The primary risk in parametric insurance is **basis risk**: mismatch between trigger and actual loss.
+
+**Example Scenarios:**
+
+1. **False Positive** (Payout without loss):
+   - Trigger: Rainfall < 10mm detected
+   - Reality: Farm has irrigation system, no damage occurred
+   - Result: Farmer receives payout despite no loss
+
+2. **False Negative** (Loss without payout):
+   - Trigger: Rainfall 11mm (just above threshold)
+   - Reality: Localized drought at farm, crops damaged
+   - Result: Farmer suffers loss but receives no payout
+
+**Mitigation Strategies:**
+
+<Accordion title="Precise Trigger Calibration">
+  Use historical data to set thresholds that maximize correlation between trigger events and actual losses:
+  
+  ```python
+  # Analysis of historical data
+  drought_years = [2011, 2015, 2017, 2022]
+  avg_rainfall_during_drought = 8.5mm
+  threshold = avg_rainfall_during_drought * 1.2  # 10.2mm buffer
+  ```
+</Accordion>
+
+<Accordion title="Multi-Parameter Triggers">
+  Combine multiple weather indicators:
+  
+  - Rainfall < 10mm **AND**
+  - Temperature > 35°C **AND**
+  - Humidity < 30%
+  
+  Reduces false positives significantly.
+</Accordion>
+
+<Accordion title="Satellite Verification">
+  Use satellite imagery to confirm crop stress:
+  
+  - NDVI (Normalized Difference Vegetation Index) analysis
+  - Soil moisture remote sensing
+  - Thermal imaging for heat stress
+</Accordion>
+
+<Accordion title="Local Weather Stations">
+  Deploy IoT weather sensors on farms:
+  
+  - More accurate than regional data
+  - Real-time monitoring
+  - Chainlink External Adapters for on-chain integration
+</Accordion>
+
+### Smart Contract Risk
+
+**Risks:**
+- Contract bugs leading to locked funds
+- Reentrancy attacks on payout function
+- Unauthorized access to `executePayout`
+
+**Mitigations:**
+
+```solidity
+// Access control
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+
+// Reentrancy protection
+function executePayout(bytes32 policyId) external onlyCRE {
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    
+    // State changes BEFORE external call
+    policy.isActive = false;
+    
+    uint256 payoutAmount = policy.premiumPaid * 10;
+    require(address(this).balance >= payoutAmount, "Insufficient balance");
+    
+    // External call (potential reentrancy)
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+    
+    emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+}
+```
+
+<Warning>
+  Always audit smart contracts before production deployment. AridGuard is a hackathon demo and has not undergone formal security audits.
+</Warning>
+
+## Use Cases Beyond Drought
+
+Parametric insurance can be applied to many scenarios:
+
+<CardGroup cols={2}>
+  <Card title="Hurricane Protection" icon="hurricane">
+    Trigger: Wind speed > 120 mph
+    
+    Payout: Property damage coverage without inspection
+  </Card>
+  <Card title="Flight Delay Insurance" icon="plane">
+    Trigger: Delay > 2 hours
+    
+    Payout: Automatic refund + compensation
+  </Card>
+  <Card title="Earthquake Coverage" icon="house-crack">
+    Trigger: Magnitude > 6.0
+    
+    Payout: Immediate funds for temporary housing
+  </Card>
+  <Card title="Frost Damage" icon="snowflake">
+    Trigger: Temperature < -2°C for 6+ hours
+    
+    Payout: Crop loss compensation for vineyards
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Automated Monitoring"
+    icon="satellite"
+    href="/features/automated-monitoring"
+  >
+    Learn how CRE continuously monitors conditions
+  </Card>
+  <Card
+    title="Instant Payouts"
+    icon="money-bill-transfer"
+    href="/features/instant-payouts"
+  >
+    Understand the payout execution mechanism
+  </Card>
+  <Card
+    title="Smart Contracts"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Explore the on-chain settlement layer
+  </Card>
+  <Card
+    title="CRE Workflow"
+    icon="arrows-spin"
+    href="/architecture/cre-workflow"
+  >
+    Deep dive into off-chain compute
+  </Card>
+</CardGroup>

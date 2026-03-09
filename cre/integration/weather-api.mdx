@@ -1,0 +1,454 @@
+---
+title: "Weather API Integration"
+description: "Integrate OpenWeather API and other weather data providers with your AridGuard CRE workflow"
+---
+
+## Overview
+
+The Weather API integration fetches real-time rainfall data using CRE's HTTPClient capability. AridGuard uses OpenWeather API by default, but supports other weather providers.
+
+## OpenWeather API
+
+AridGuard's default weather data provider.
+
+### API Endpoint
+
+```
+https://api.openweathermap.org/data/2.5/weather?q={location}&units=metric&appid={api_key}
+```
+
+### Getting API Key
+
+<Steps>
+  <Step title="Create Account">
+    Sign up at [openweathermap.org](https://openweathermap.org/)
+  </Step>
+  
+  <Step title="Generate API Key">
+    Navigate to API Keys section in your account dashboard and create a new key.
+  </Step>
+  
+  <Step title="Verify Key">
+    Test the key with a sample request:
+    ```bash
+    curl "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric&appid=YOUR_KEY"
+    ```
+  </Step>
+  
+  <Step title="Configure in Workflow">
+    Add to environment variables:
+    ```bash
+    export CRE_OPENWEATHER_API_KEY="your_api_key_here"
+    ```
+  </Step>
+</Steps>
+
+### API Response Format
+
+OpenWeather returns JSON with rainfall data:
+
+```json
+{
+  "coord": { "lon": 36.8167, "lat": -1.2833 },
+  "weather": [
+    {
+      "id": 501,
+      "main": "Rain",
+      "description": "moderate rain",
+      "icon": "10d"
+    }
+  ],
+  "main": {
+    "temp": 22.5,
+    "feels_like": 22.8,
+    "temp_min": 21.0,
+    "temp_max": 24.0,
+    "pressure": 1013,
+    "humidity": 78
+  },
+  "rain": {
+    "1h": 8.5
+  },
+  "name": "Nairobi"
+}
+```
+
+### Extracting Rainfall Data
+
+The workflow extracts rainfall from the `rain.1h` field:
+
+```typescript
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+
+  if (!ok(response)) {
+    throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+  }
+
+  const externalResp = json(response) as any;
+  const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+  return rainfall;
+};
+```
+
+### Handling Missing Data
+
+When no rainfall is detected, the API may omit the `rain` field:
+
+```typescript
+const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+```
+
+This returns `0` mm if:
+- The `rain` field is absent
+- The `rain.1h` field is absent
+- The `rain.1h` value is `null` or `undefined`
+
+## HTTPClient Implementation
+
+The CRE HTTPClient provides consensus-driven data fetching:
+
+```typescript
+const httpCapability = new cre.capabilities.HTTPClient();
+const medianRainfall = httpCapability
+  .sendRequest(runtime, fetchAndParse, consensusMedianAggregation())(runtime.config, apiKey)
+  .result();
+
+runtime.log(`Aggregated median rainfall: ${medianRainfall} mm`);
+```
+
+### Consensus Process
+
+1. **Fetch**: Each oracle node calls OpenWeather API independently
+2. **Parse**: Each node extracts the rainfall value
+3. **Submit**: All nodes submit their readings to the consensus layer
+4. **Aggregate**: CRE computes the median across all submissions
+5. **Result**: The median value is used for threshold comparison
+
+<Info>
+  Median aggregation prevents individual node failures or API inconsistencies from affecting the result. Even if one node gets corrupted data, the median remains accurate.
+</Info>
+
+## Configuration
+
+Weather API settings in `config.json`:
+
+```json
+{
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10
+}
+```
+
+### Location Parameter
+
+Specify city name:
+```
+?q=Nairobi
+```
+
+Or use coordinates:
+```
+?lat=-1.2833&lon=36.8167
+```
+
+### Units Parameter
+
+<ParamField path="units" type="string" default="metric">
+  - **metric**: Celsius, mm (recommended)
+  - **imperial**: Fahrenheit, inches
+  - **standard**: Kelvin (default if omitted)
+</ParamField>
+
+## Error Handling
+
+### HTTP Errors
+
+```typescript
+if (!ok(response)) {
+  throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+}
+```
+
+Common error codes:
+- **401**: Invalid API key
+- **404**: Location not found
+- **429**: Rate limit exceeded
+- **500**: API server error
+
+### Network Failures
+
+CRE automatically retries failed requests:
+
+```typescript
+try {
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+} catch (error) {
+  runtime.log(`API request failed: ${error.message}`);
+  throw error;
+}
+```
+
+### Validation
+
+Validate rainfall values before using:
+
+```typescript
+const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+
+if (typeof rainfall !== 'number' || rainfall < 0) {
+  throw new Error(`Invalid rainfall value: ${rainfall}`);
+}
+
+return rainfall;
+```
+
+## Alternative Weather Providers
+
+### WeatherAPI.com
+
+Another popular weather data provider:
+
+```json
+{
+  "weatherApiUrl": "https://api.weatherapi.com/v1/current.json?q=Nairobi"
+}
+```
+
+Modify parsing logic:
+
+```typescript
+const externalResp = json(response) as any;
+const rainfall = externalResp.current?.precip_mm || 0;
+return rainfall;
+```
+
+### Tomorrow.io
+
+Enterprise weather API:
+
+```json
+{
+  "weatherApiUrl": "https://api.tomorrow.io/v4/weather/realtime?location=Nairobi"
+}
+```
+
+Parsing example:
+
+```typescript
+const rainfall = externalResp.data?.values?.precipitationIntensity || 0;
+return rainfall;
+```
+
+### Custom Weather API
+
+Integrate any REST API:
+
+```typescript
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  const response = sendRequester
+    .sendRequest({ 
+      url: config.weatherApiUrl,
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      }
+    })
+    .result();
+
+  if (!ok(response)) {
+    throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+  }
+
+  const externalResp = json(response) as any;
+  
+  // Custom parsing logic for your API
+  const rainfall = externalResp.your_field_path || 0;
+  return rainfall;
+};
+```
+
+## Rate Limiting
+
+### OpenWeather Limits
+
+Free tier:
+- **60 calls/minute**
+- **1,000,000 calls/month**
+
+With consensus of 5 nodes running hourly:
+- **5 calls/hour = 120 calls/day = 3,600 calls/month**
+- Well within free tier limits
+
+### Handling Rate Limits
+
+Implement exponential backoff:
+
+```typescript
+const fetchWithRetry = (sendRequester: HTTPSendRequester, url: string, maxRetries: number = 3) => {
+  for (let i = 0; i < maxRetries; i++) {
+    const response = sendRequester.sendRequest({ url, method: "GET" }).result();
+    
+    if (ok(response)) {
+      return response;
+    }
+    
+    if (response.statusCode === 429) {
+      // Rate limited, wait before retry
+      const waitTime = Math.pow(2, i) * 1000; // Exponential backoff
+      runtime.log(`Rate limited, retrying in ${waitTime}ms...`);
+      // Note: CRE SDK handles delays internally
+    } else {
+      throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+    }
+  }
+  
+  throw new Error("Max retries reached");
+};
+```
+
+## Testing Weather Integration
+
+### Mock API Responses
+
+For testing without API calls:
+
+```typescript
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  // Mock for testing
+  if (process.env.NODE_ENV === 'test') {
+    return 5.0; // Fixed test value
+  }
+  
+  // Production code
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+    
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+    
+  // ... rest of implementation
+};
+```
+
+### Validate API Responses
+
+Test different scenarios:
+
+<Tabs>
+  <Tab title="Drought Condition">
+    ```json
+    {
+      "rain": { "1h": 2.5 }
+    }
+    ```
+    Low rainfall should trigger payout.
+  </Tab>
+  
+  <Tab title="Normal Condition">
+    ```json
+    {
+      "rain": { "1h": 15.0 }
+    }
+    ```
+    Sufficient rainfall, no payout.
+  </Tab>
+  
+  <Tab title="No Rainfall">
+    ```json
+    {
+      "main": { "temp": 25.0 }
+    }
+    ```
+    Missing `rain` field defaults to 0mm.
+  </Tab>
+  
+  <Tab title="Error Response">
+    ```json
+    {
+      "cod": 401,
+      "message": "Invalid API key"
+    }
+    ```
+    Should throw error and retry.
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Cache API Keys" icon="key">
+    Store API keys securely using CRE secrets, never in code.
+  </Card>
+  
+  <Card title="Validate Responses" icon="check">
+    Always check HTTP status and validate data structure before parsing.
+  </Card>
+  
+  <Card title="Handle Missing Data" icon="circle-question">
+    Provide sensible defaults when fields are absent (e.g., 0mm rainfall).
+  </Card>
+  
+  <Card title="Monitor API Usage" icon="chart-line">
+    Track API call frequency to avoid rate limits and unexpected costs.
+  </Card>
+</CardGroup>
+
+## Debugging
+
+### Log API Requests
+
+```typescript
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+  
+  runtime.log(`Fetching weather data from: ${url}`);
+  
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+  
+  runtime.log(`Response status: ${response.statusCode}`);
+  runtime.log(`Response body: ${JSON.stringify(json(response))}`);
+  
+  // ... rest of implementation
+};
+```
+
+### Test with curl
+
+Manually test API endpoints:
+
+```bash
+curl -v "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric&appid=YOUR_KEY"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Consensus Aggregation" icon="users" href="/cre/integration/consensus">
+    Learn about consensus mechanisms
+  </Card>
+  <Card title="EVM Integration" icon="ethereum" href="/cre/integration/evm-client">
+    Integrate with smart contracts
+  </Card>
+  <Card title="Local Testing" icon="flask" href="/cre/setup/local-simulation">
+    Test weather integration locally
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/cre/configuration">
+    Configure weather parameters
+  </Card>
+</CardGroup>

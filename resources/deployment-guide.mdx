@@ -1,0 +1,220 @@
+---
+title: 'Deployment Guide'
+description: 'Complete step-by-step guide to deploy AridGuard on Base Sepolia'
+icon: 'rocket'
+---
+
+This guide walks you through deploying the complete AridGuard parametric drought insurance system, including smart contracts, CRE workflow, and frontend application.
+
+## Prerequisites
+
+Before you begin, ensure you have the following:
+
+- Node.js v18 or higher installed
+- npm or yarn package manager
+- A wallet with Base Sepolia testnet ETH for gas fees
+- OpenWeather API key (free tier available at [openweathermap.org](https://openweathermap.org/api))
+- Git installed on your system
+
+## Deployment Overview
+
+The deployment process consists of three main components:
+
+1. **Smart Contracts** - Deploy the AridGuard.sol contract to Base Sepolia
+2. **CRE Workflow** - Configure and deploy the Chainlink Runtime Environment workflow
+3. **Frontend Application** - Set up the Next.js web interface
+
+<Steps>
+  <Step title="Clone the Repository">
+    First, clone the AridGuard repository and navigate to the project directory:
+
+    ```bash
+    git clone https://github.com/OOlajide/aridguard.git
+    cd aridguard
+    ```
+  </Step>
+
+  <Step title="Deploy Smart Contracts">
+    Navigate to the contracts folder and install dependencies:
+
+    ```bash
+    cd contracts
+    npm install
+    ```
+
+    Create your environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and add your wallet private key:
+
+    ```bash
+    PRIVATE_KEY=your_wallet_private_key_here
+    ```
+
+    <Warning>
+      Never commit your `.env` file or share your private key. Keep it secure!
+    </Warning>
+
+    Compile the smart contracts:
+
+    ```bash
+    npx hardhat compile
+    ```
+
+    Deploy to Base Sepolia testnet:
+
+    ```bash
+    npx hardhat ignition deploy ignition/modules/AridGuard.js --network base_sepolia
+    ```
+
+    <Note>
+      Save the deployed contract address - you'll need it for the CRE configuration.
+    </Note>
+  </Step>
+
+  <Step title="Configure CRE Workflow">
+    Navigate to the CRE folder:
+
+    ```bash
+    cd ../cre
+    npm install
+    ```
+
+    Create your environment file:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Configure the environment variables in `.env`:
+
+    ```bash
+    CRE_ETH_PRIVATE_KEY=your_cre_wallet_private_key
+    CRE_OPENWEATHER_API_KEY=your_openweather_api_key
+    ```
+
+    <Warning>
+      The wallet address associated with `CRE_ETH_PRIVATE_KEY` must be set as the `creAddress` in your deployed AridGuard contract.
+    </Warning>
+
+    Update `config.json` with your contract address:
+
+    ```json
+    {
+      "schedule": "* * * * *",
+      "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+      "thresholdRainfall": 10,
+      "evm": {
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "contractAddress": "YOUR_DEPLOYED_CONTRACT_ADDRESS"
+      }
+    }
+    ```
+
+    Test the workflow locally:
+
+    ```bash
+    npx ts-node main.ts
+    ```
+  </Step>
+
+  <Step title="Set CRE Address in Contract">
+    After deploying the contract, you need to set the authorized CRE address. This is the wallet address that corresponds to your `CRE_ETH_PRIVATE_KEY`.
+
+    Use Hardhat console or create a script to call:
+
+    ```solidity
+    aridGuard.setCREAddress("0xYourCREWalletAddress")
+    ```
+
+    Only the contract owner can execute this function.
+  </Step>
+
+  <Step title="Deploy Frontend Application">
+    Navigate to the frontend folder:
+
+    ```bash
+    cd ../frontend
+    npm install
+    ```
+
+    Update the contract address in your frontend configuration file to match your deployed contract.
+
+    Start the development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    The application will be available at `http://localhost:3000`.
+
+    For production deployment, build and deploy to your hosting provider:
+
+    ```bash
+    npm run build
+    npm start
+    ```
+  </Step>
+
+  <Step title="Fund the Contract">
+    The AridGuard contract needs sufficient balance to pay out insurance claims (10x the premium).
+
+    Send Base Sepolia ETH directly to the contract address. The contract has a `receive()` function that accepts native ETH.
+
+    ```bash
+    # Example: Send 1 ETH to the contract
+    # Use your wallet or a script
+    ```
+
+    <Info>
+      For production, ensure the contract has enough liquidity to cover all potential payouts based on your risk assessment.
+    </Info>
+  </Step>
+
+  <Step title="Verify Deployment">
+    Test the complete system:
+
+    1. **Frontend Test**: Connect your wallet and attempt to purchase a policy
+    2. **Contract Test**: Verify the policy was recorded on-chain
+    3. **CRE Test**: Check that the workflow is fetching weather data correctly
+    4. **Integration Test**: If conditions meet the threshold, verify that payouts execute automatically
+
+    Monitor the CRE logs to ensure proper operation:
+
+    ```bash
+    # The workflow will log rainfall data and execution status
+    Aggregated median rainfall: 8.5 mm
+    ALERT: Drought condition detected! Rainfall 8.5 is below threshold 10.
+    Reading active policies from contract...
+    Found active policy ID: 0x123...
+    Executing payout transaction on Base...
+    ```
+  </Step>
+</Steps>
+
+## Post-Deployment Checklist
+
+- [ ] Smart contract deployed and verified on Base Sepolia
+- [ ] CRE address set in the contract using `setCREAddress()`
+- [ ] CRE workflow tested and running successfully
+- [ ] Contract funded with sufficient ETH for payouts
+- [ ] Frontend connected to the correct contract address
+- [ ] OpenWeather API key validated and working
+- [ ] Test policy purchased and verified on-chain
+- [ ] CRE workflow logs show successful data fetching
+
+## Troubleshooting Deployment
+
+If you encounter issues during deployment, see the [Troubleshooting Guide](/resources/troubleshooting) for common problems and solutions.
+
+## Next Steps
+
+Once deployed:
+
+- Configure your [network settings](/resources/network-configuration) for production
+- Review [environment variables](/resources/environment-variables) for optimization
+- Monitor the system health and logs regularly
+- Set up alerts for critical events (low contract balance, API failures, etc.)

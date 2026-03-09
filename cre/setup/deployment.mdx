@@ -1,0 +1,451 @@
+---
+title: "Deployment"
+description: "Deploy your AridGuard CRE workflow to the Chainlink Decentralized Oracle Network"
+---
+
+## Overview
+
+Deployment moves your workflow from local simulation to the Chainlink Decentralized Oracle Network (DON), where it will be executed by multiple independent oracle nodes.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Test Locally">
+    Complete local simulation and verify workflow behavior:
+    ```bash
+    chainlink cre local simulate --once
+    ```
+  </Step>
+  
+  <Step title="Chainlink Account">
+    Create an account on the Chainlink platform and authenticate:
+    ```bash
+    chainlink auth login
+    ```
+  </Step>
+  
+  <Step title="Fund Oracle Operations">
+    Ensure you have LINK tokens for oracle payment and gas fees for on-chain transactions.
+  </Step>
+  
+  <Step title="Deploy Smart Contract">
+    Deploy your insurance contract to the target blockchain (Base Sepolia) and verify the address.
+  </Step>
+</Steps>
+
+## Pre-Deployment Checklist
+
+<Checklist>
+  - [ ] Workflow tested successfully in local simulation
+  - [ ] All API keys and secrets configured
+  - [ ] Smart contract deployed and verified on target network
+  - [ ] Contract address updated in config.json
+  - [ ] Production configuration values set (schedule, thresholds)
+  - [ ] TypeScript compiles without errors
+  - [ ] All dependencies installed
+  - [ ] Chainlink CLI authenticated
+</Checklist>
+
+## Configuration for Production
+
+Update `config.json` for production deployment:
+
+```json
+{
+  "schedule": "0 * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "contractAddress": "0x23d747751abF06b68539f0684abe21E2A76901fc"
+  }
+}
+```
+
+<Warning>
+  Use production-appropriate schedule intervals. Hourly checks (`"0 * * * *"`) are recommended to balance responsiveness with API rate limits and costs.
+</Warning>
+
+## Deployment Steps
+
+<Steps>
+  <Step title="Build Workflow">
+    Compile TypeScript to ensure no errors:
+    ```bash
+    npx tsc --noEmit
+    ```
+    
+    Fix any compilation errors before proceeding.
+  </Step>
+  
+  <Step title="Create Workflow Package">
+    Package your workflow for deployment:
+    ```bash
+    chainlink cre package create \
+      --name aridguard-workflow \
+      --workflow-path ./main.ts \
+      --config-path ./config.json \
+      --secrets-path ./secrets.yaml
+    ```
+    
+    This creates a deployment package with all necessary files.
+  </Step>
+  
+  <Step title="Upload Secrets">
+    Securely upload secrets to the Chainlink network:
+    ```bash
+    chainlink cre secrets upload \
+      --name aridguard-secrets \
+      --file ./secrets.yaml
+    ```
+    
+    Secrets are encrypted and stored securely in the oracle network.
+  </Step>
+  
+  <Step title="Deploy Workflow">
+    Deploy the workflow to the oracle network:
+    ```bash
+    chainlink cre workflow deploy \
+      --package aridguard-workflow \
+      --secrets aridguard-secrets \
+      --network base-sepolia
+    ```
+    
+    This registers your workflow with the Chainlink DON.
+  </Step>
+  
+  <Step title="Verify Deployment">
+    Check deployment status:
+    ```bash
+    chainlink cre workflow status --name aridguard-workflow
+    ```
+    
+    Expected output:
+    ```
+    Workflow: aridguard-workflow
+    Status: Active
+    Network: base-sepolia
+    Oracle Nodes: 5
+    Last Execution: 2026-03-09 10:00:00 UTC
+    Next Execution: 2026-03-09 11:00:00 UTC
+    ```
+  </Step>
+</Steps>
+
+## Network Configuration
+
+### Supported Networks
+
+AridGuard can deploy to various EVM networks:
+
+<Tabs>
+  <Tab title="Base Sepolia (Testnet)">
+    ```json
+    {
+      "evm": {
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "contractAddress": "0x23d747751abF06b68539f0684abe21E2A76901fc"
+      }
+    }
+    ```
+    
+    Recommended for development and testing.
+  </Tab>
+  
+  <Tab title="Base Mainnet (Production)">
+    ```json
+    {
+      "evm": {
+        "chainSelectorName": "base-mainnet",
+        "contractAddress": "0x..."
+      }
+    }
+    ```
+    
+    Use for production deployments with real funds.
+  </Tab>
+  
+  <Tab title="Ethereum Sepolia">
+    ```json
+    {
+      "evm": {
+        "chainSelectorName": "ethereum-testnet-sepolia",
+        "contractAddress": "0x..."
+      }
+    }
+    ```
+    
+    Alternative testnet option.
+  </Tab>
+</Tabs>
+
+## Monitoring Deployment
+
+### View Execution Logs
+
+Stream real-time logs from oracle execution:
+
+```bash
+chainlink cre workflow logs --name aridguard-workflow --follow
+```
+
+Example output:
+```
+[2026-03-09 10:00:00] [Node 1] Aggregated median rainfall: 8.5 mm
+[2026-03-09 10:00:00] [Node 1] ALERT: Drought condition detected!
+[2026-03-09 10:00:01] [Node 1] Reading active policies from contract...
+[2026-03-09 10:00:02] [Node 1] Executing payout for policy 0x1234...
+[2026-03-09 10:00:03] [Consensus] Transaction submitted: 0xabcd...
+```
+
+### Check Execution History
+
+View past workflow executions:
+
+```bash
+chainlink cre workflow history --name aridguard-workflow --limit 10
+```
+
+### Monitor On-Chain Activity
+
+Track executed transactions on the blockchain:
+
+- **Base Sepolia Explorer**: https://sepolia.basescan.org/
+- **Mainnet Explorer**: https://basescan.org/
+
+Search for your contract address to see payout transactions.
+
+## Updating Deployed Workflow
+
+<Steps>
+  <Step title="Modify Code">
+    Make changes to `main.ts` or `config.json` locally.
+  </Step>
+  
+  <Step title="Test Changes">
+    Run local simulation to verify:
+    ```bash
+    chainlink cre local simulate --once
+    ```
+  </Step>
+  
+  <Step title="Create New Package">
+    Package the updated workflow:
+    ```bash
+    chainlink cre package create \
+      --name aridguard-workflow-v2 \
+      --workflow-path ./main.ts \
+      --config-path ./config.json \
+      --secrets-path ./secrets.yaml
+    ```
+  </Step>
+  
+  <Step title="Update Deployment">
+    Deploy the new version:
+    ```bash
+    chainlink cre workflow update \
+      --name aridguard-workflow \
+      --package aridguard-workflow-v2
+    ```
+    
+    The workflow will automatically use the new version on the next execution.
+  </Step>
+</Steps>
+
+## Configuration Updates
+
+### Update Without Redeployment
+
+Some configuration changes can be applied without full redeployment:
+
+```bash
+chainlink cre workflow config update \
+  --name aridguard-workflow \
+  --key thresholdRainfall \
+  --value 12
+```
+
+<Info>
+  Only configuration values (not code changes) can be updated this way. Code modifications require redeployment.
+</Info>
+
+## Secret Management
+
+### Rotate API Keys
+
+Update secrets without redeploying the workflow:
+
+```bash
+chainlink cre secrets update \
+  --name aridguard-secrets \
+  --key OPENWEATHER_API_KEY \
+  --value "new_api_key_here"
+```
+
+### View Secret Metadata
+
+```bash
+chainlink cre secrets list
+```
+
+Outputs secret names and last updated timestamps (not actual values).
+
+## Cost Management
+
+### Oracle Payment
+
+CRE workflows require LINK tokens for oracle services:
+
+- **Per-execution fee**: Paid to oracle nodes for each workflow run
+- **Gas fees**: Paid for on-chain transaction execution
+
+### Estimate Costs
+
+```bash
+chainlink cre workflow estimate-cost \
+  --name aridguard-workflow \
+  --executions-per-day 24
+```
+
+Outputs estimated daily and monthly costs in LINK.
+
+### Optimize Schedule
+
+Balance responsiveness with costs:
+
+- **Every minute**: `"* * * * *"` - High responsiveness, high cost
+- **Every hour**: `"0 * * * *"` - Moderate responsiveness, moderate cost
+- **Every 6 hours**: `"0 */6 * * *"` - Low frequency, low cost
+
+## Pause and Resume
+
+### Pause Workflow
+
+Temporarily stop execution:
+
+```bash
+chainlink cre workflow pause --name aridguard-workflow
+```
+
+### Resume Workflow
+
+Restart after pausing:
+
+```bash
+chainlink cre workflow resume --name aridguard-workflow
+```
+
+### Delete Workflow
+
+Permanently remove from the network:
+
+```bash
+chainlink cre workflow delete --name aridguard-workflow
+```
+
+<Warning>
+  Deletion is permanent and cannot be undone. Ensure you have backups of your workflow code.
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Deployment fails">
+    Check authentication:
+    ```bash
+    chainlink auth status
+    ```
+    
+    Re-authenticate if needed:
+    ```bash
+    chainlink auth login
+    ```
+    
+    Verify package creation succeeded:
+    ```bash
+    chainlink cre package list
+    ```
+  </Accordion>
+  
+  <Accordion title="Workflow not executing">
+    Check workflow status:
+    ```bash
+    chainlink cre workflow status --name aridguard-workflow
+    ```
+    
+    Verify schedule is correct and not paused. Check logs for errors:
+    ```bash
+    chainlink cre workflow logs --name aridguard-workflow --tail 50
+    ```
+  </Accordion>
+  
+  <Accordion title="Contract calls failing">
+    Verify contract address and network:
+    ```bash
+    chainlink cre workflow config get --name aridguard-workflow
+    ```
+    
+    Test contract call manually using a blockchain explorer or Hardhat console.
+    
+    Ensure oracle nodes have necessary permissions if contract has access controls.
+  </Accordion>
+  
+  <Accordion title="Consensus failures">
+    Check that multiple nodes are executing:
+    ```bash
+    chainlink cre workflow nodes --name aridguard-workflow
+    ```
+    
+    Ensure API endpoints are accessible from all oracle nodes. Check for rate limiting or geographic restrictions.
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Secret Management" icon="key">
+    Never commit secrets to version control. Use Chainlink's secure secret storage.
+  </Card>
+  
+  <Card title="Access Controls" icon="shield">
+    Implement on-chain access controls to restrict who can trigger payouts.
+  </Card>
+  
+  <Card title="Rate Limiting" icon="gauge">
+    Monitor API usage to avoid rate limits and unexpected costs.
+  </Card>
+  
+  <Card title="Monitoring" icon="chart-line">
+    Set up alerts for failed executions or unusual activity.
+  </Card>
+</CardGroup>
+
+## Production Checklist
+
+<Checklist>
+  - [ ] Workflow tested extensively on testnet
+  - [ ] Production configuration values verified
+  - [ ] Smart contract audited (for mainnet)
+  - [ ] Sufficient LINK balance for operations
+  - [ ] Monitoring and alerting configured
+  - [ ] Backup of workflow code and configuration
+  - [ ] Documentation for operations team
+  - [ ] Emergency pause procedure established
+</Checklist>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Monitoring" icon="chart-line" href="/cre/integration/consensus">
+    Learn about consensus mechanisms and monitoring
+  </Card>
+  <Card title="Smart Contract" icon="file-contract" href="/contracts/aridguard">
+    Explore the insurance smart contract
+  </Card>
+  <Card title="Weather API" icon="cloud" href="/cre/integration/weather-api">
+    Deep dive into weather data integration
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cre/configuration">
+    Review configuration options
+  </Card>
+</CardGroup>

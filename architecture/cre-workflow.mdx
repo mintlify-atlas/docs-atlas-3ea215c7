@@ -1,0 +1,692 @@
+---
+title: CRE Workflow
+description: Complete implementation guide for the Chainlink Runtime Environment off-chain compute workflow
+---
+
+## Workflow Overview
+
+The AridGuard CRE workflow is a serverless application that bridges real-world weather data to the blockchain, continuously monitoring for drought conditions and automatically triggering payouts.
+
+<CardGroup cols={3}>
+  <Card title="Scheduled" icon="clock">
+    Runs every minute via cron triggers
+  </Card>
+  <Card title="Data-Driven" icon="cloud-rain">
+    Fetches live weather from OpenWeather API
+  </Card>
+  <Card title="Automated" icon="bolt">
+    Executes on-chain payouts when thresholds met
+  </Card>
+</CardGroup>
+
+## Complete Source Code
+
+```typescript
+// cre/main.ts
+import { 
+  cre, 
+  consensusMedianAggregation, 
+  type HTTPSendRequester, 
+  type Runtime, 
+  ok, 
+  json, 
+  Runner, 
+  encodeCallMsg, 
+  prepareReportRequest, 
+  LAST_FINALIZED_BLOCK_NUMBER, 
+  getNetwork, 
+  bytesToHex 
+} from "@chainlink/cre-sdk";
+import { z } from "zod";
+import { 
+  encodeFunctionData, 
+  decodeFunctionResult, 
+  zeroAddress, 
+  type Address 
+} from "viem";
+
+const configSchema = z.object({
+  schedule: z.string(),
+  weatherApiUrl: z.string(),
+  thresholdRainfall: z.number(),
+  evm: z.object({
+    chainSelectorName: z.string(),
+    contractAddress: z.string()
+  }).optional()
+});
+
+type Config = z.infer<typeof configSchema>;
+
+const fetchAndParse = (
+  sendRequester: HTTPSendRequester, 
+  config: Config, 
+  apiKey: string
+) => {
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+
+  if (!ok(response)) {
+    throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+  }
+
+  const externalResp = json(response) as any;
+  const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+  return rainfall;
+};
+
+const onCronTrigger = (runtime: Runtime<Config>) => {
+  const secretResponse = runtime.getSecret({ id: "OPENWEATHER_API_KEY" }).result();
+  const apiKey = secretResponse.value;
+
+  const httpCapability = new cre.capabilities.HTTPClient();
+  const medianRainfall = httpCapability
+    .sendRequest(runtime, fetchAndParse, consensusMedianAggregation())
+    (runtime.config, apiKey)
+    .result();
+
+  runtime.log(`Aggregated median rainfall: ${medianRainfall} mm`);
+
+  if (medianRainfall < runtime.config.thresholdRainfall) {
+     runtime.log(`ALERT: Drought condition detected! Rainfall ${medianRainfall} is below threshold ${runtime.config.thresholdRainfall}.`);
+     
+     const chainName = runtime.config.evm?.chainSelectorName || "base-sepolia";
+     const contractAddress = (
+       runtime.config.evm?.contractAddress || 
+       "0x23d747751abF06b68539f0684abe21E2A76901fc"
+     ) as Address;
+     
+     const network = getNetwork({
+       chainFamily: "evm",
+       chainSelectorName: chainName,
+       isTestnet: true,
+     });
+     
+     if (!network) throw new Error(`Network ${chainName} not found`);
+
+     const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector);
+
+     // Read active policy
+     const readAbi = [{ 
+       type: "function", 
+       name: "activePolicyIds", 
+       inputs: [{ type: "uint256", name: "" }], 
+       outputs: [{ type: "bytes32", name: "" }], 
+       stateMutability: "view" 
+     }] as const;
+     
+     const readData = encodeFunctionData({
+       abi: readAbi,
+       functionName: "activePolicyIds",
+       args: [0n]
+     });
+
+     runtime.log(`Reading active policies from contract at ${contractAddress}...`);
+     
+     const contractCall = evmClient.callContract(runtime, {
+       call: encodeCallMsg({
+         from: zeroAddress,
+         to: contractAddress,
+         data: readData,
+       }),
+       blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+     }).result();
+
+     const policyId = decodeFunctionResult({
+       abi: readAbi,
+       functionName: "activePolicyIds",
+       data: bytesToHex(contractCall.data),
+     });
+
+     runtime.log(`Found active policy ID: ${policyId}. Executing payout transaction on Base...`);
+     
+     // Execute payout
+     const writeAbi = [{ 
+       type: "function", 
+       name: "executePayout", 
+       inputs: [{ type: "bytes32", name: "policyId" }], 
+       outputs: [], 
+       stateMutability: "nonpayable" 
+     }] as const;
+     
+     const writeData = encodeFunctionData({
+       abi: writeAbi,
+       functionName: "executePayout",
+       args: [policyId as `0x${string}`],
+     });
+     
+     runtime.report(prepareReportRequest(writeData)).result();
+     
+     return `Payout Executed for rainfall: ${medianRainfall}. Policy ID: ${policyId}`;
+  }
+
+  return `Rainfall normal: ${medianRainfall}`;
+};
+
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability();
+  return [cre.handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)];
+};
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema });
+  await runner.run(initWorkflow);
+}
+```
+
+## Configuration Files
+
+### config.json
+
+```json
+{
+  "schedule": "* * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "contractAddress": "0x23d747751abF06b68539f0684abe21E2A76901fc"
+  }
+}
+```
+
+**Field Descriptions:**
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `schedule` | string | Cron expression for execution frequency | `"* * * * *"` (every minute) |
+| `weatherApiUrl` | string | OpenWeather API endpoint | Full URL with city parameter |
+| `thresholdRainfall` | number | Drought threshold in mm | `10` |
+| `evm.chainSelectorName` | string | CRE chain selector | `"ethereum-testnet-sepolia-base-1"` |
+| `evm.contractAddress` | string | AridGuard contract address | `"0x23d747..."` |
+
+### workflow.yaml
+
+```yaml
+local-simulation:
+  user-workflow:
+    workflow-name: "aridguard-local"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "./secrets.yaml"
+```
+
+### secrets.yaml
+
+```yaml
+secrets:
+  - id: OPENWEATHER_API_KEY
+    envVar: CRE_OPENWEATHER_API_KEY
+```
+
+### .env
+
+```bash
+CRE_ETH_PRIVATE_KEY=your_private_key_here
+CRE_OPENWEATHER_API_KEY=your_openweather_api_key
+```
+
+<Warning>
+  Never commit `.env` files to version control. Always use `.env.example` as a template.
+</Warning>
+
+## Code Walkthrough
+
+### 1. Configuration Schema
+
+```typescript
+import { z } from "zod";
+
+const configSchema = z.object({
+  schedule: z.string(),
+  weatherApiUrl: z.string(),
+  thresholdRainfall: z.number(),
+  evm: z.object({
+    chainSelectorName: z.string(),
+    contractAddress: z.string()
+  }).optional()
+});
+
+type Config = z.infer<typeof configSchema>;
+```
+
+**Purpose:**
+- Validates configuration structure
+- Provides TypeScript type safety
+- Auto-generates Config type from schema
+
+**Why Zod?**
+- Runtime validation (catches config errors early)
+- Type inference (no duplicate type definitions)
+- Clear error messages
+
+### 2. Data Fetching Function
+
+```typescript
+const fetchAndParse = (
+  sendRequester: HTTPSendRequester,
+  config: Config,
+  apiKey: string
+) => {
+  // Construct URL with API key
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+
+  // Send HTTP request
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+
+  // Check response status
+  if (!ok(response)) {
+    throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+  }
+
+  // Parse JSON and extract rainfall
+  const externalResp = json(response) as any;
+  const rainfall = externalResp.rain ? externalResp.rain["1h"] || 0 : 0;
+  return rainfall;
+};
+```
+
+**Key Points:**
+- Handles both `?` and `&` URL separators
+- Uses CRE SDK's `ok()` helper for status checking
+- Extracts 1-hour rainfall, defaults to 0 if no rain
+- Returns single number for aggregation
+
+**OpenWeather Response Structure:**
+
+```json
+{
+  "coord": { "lon": 36.82, "lat": -1.28 },
+  "weather": [{ "main": "Rain" }],
+  "main": { "temp": 24.5 },
+  "rain": { 
+    "1h": 2.5    // This is what we extract
+  },
+  "dt": 1632150000
+}
+```
+
+### 3. Cron Trigger Handler
+
+```typescript
+const onCronTrigger = (runtime: Runtime<Config>) => {
+  // Retrieve API key from secrets
+  const secretResponse = runtime.getSecret({ 
+    id: "OPENWEATHER_API_KEY" 
+  }).result();
+  const apiKey = secretResponse.value;
+
+  // Fetch and aggregate weather data
+  const httpCapability = new cre.capabilities.HTTPClient();
+  const medianRainfall = httpCapability
+    .sendRequest(runtime, fetchAndParse, consensusMedianAggregation())
+    (runtime.config, apiKey)
+    .result();
+
+  runtime.log(`Aggregated median rainfall: ${medianRainfall} mm`);
+
+  // Evaluate threshold
+  if (medianRainfall < runtime.config.thresholdRainfall) {
+    // Drought detected - execute payout
+  }
+
+  return `Rainfall normal: ${medianRainfall}`;
+};
+```
+
+**Execution Flow:**
+
+<Steps>
+  <Step title="Secret Retrieval">
+    Get OpenWeather API key from secure storage
+  </Step>
+  <Step title="HTTP Request">
+    Initialize HTTPClient capability and fetch weather data
+  </Step>
+  <Step title="Aggregation">
+    Apply consensus median to multiple data points
+  </Step>
+  <Step title="Logging">
+    Record rainfall value for debugging
+  </Step>
+  <Step title="Evaluation">
+    Compare against threshold and decide on payout
+  </Step>
+</Steps>
+
+### 4. Network Configuration
+
+```typescript
+const chainName = runtime.config.evm?.chainSelectorName || "base-sepolia";
+const contractAddress = (
+  runtime.config.evm?.contractAddress || 
+  "0x23d747751abF06b68539f0684abe21E2A76901fc"
+) as Address;
+
+const network = getNetwork({
+  chainFamily: "evm",
+  chainSelectorName: chainName,
+  isTestnet: true,
+});
+
+if (!network) throw new Error(`Network ${chainName} not found`);
+
+const evmClient = new cre.capabilities.EVMClient(
+  network.chainSelector.selector
+);
+```
+
+**Network Selection:**
+- Uses config values or falls back to defaults
+- Validates network exists
+- Initializes EVM client with correct chain selector
+
+**Supported Networks:**
+- `ethereum-testnet-sepolia-base-1` (Base Sepolia)
+- `ethereum-mainnet-base-1` (Base Mainnet)
+- Custom network configurations
+
+### 5. Contract Read Operation
+
+```typescript
+// Define ABI for reading
+const readAbi = [{ 
+  type: "function", 
+  name: "activePolicyIds", 
+  inputs: [{ type: "uint256", name: "" }], 
+  outputs: [{ type: "bytes32", name: "" }], 
+  stateMutability: "view" 
+}] as const;
+
+// Encode function call
+const readData = encodeFunctionData({
+  abi: readAbi,
+  functionName: "activePolicyIds",
+  args: [0n] // Read first policy
+});
+
+// Execute contract call
+const contractCall = evmClient.callContract(runtime, {
+  call: encodeCallMsg({
+    from: zeroAddress,
+    to: contractAddress,
+    data: readData,
+  }),
+  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+}).result();
+
+// Decode result
+const policyId = decodeFunctionResult({
+  abi: readAbi,
+  functionName: "activePolicyIds",
+  data: bytesToHex(contractCall.data),
+});
+```
+
+**Process:**
+1. Define minimal ABI (only function needed)
+2. Encode function call with Viem
+3. Execute via EVMClient (no gas cost for reads)
+4. Decode bytes response back to typed value
+
+<Tip>
+  Use `LAST_FINALIZED_BLOCK_NUMBER` for read calls to ensure data consistency.
+</Tip>
+
+### 6. Payout Transaction
+
+```typescript
+// Define ABI for writing
+const writeAbi = [{ 
+  type: "function", 
+  name: "executePayout", 
+  inputs: [{ type: "bytes32", name: "policyId" }], 
+  outputs: [], 
+  stateMutability: "nonpayable" 
+}] as const;
+
+// Encode transaction
+const writeData = encodeFunctionData({
+  abi: writeAbi,
+  functionName: "executePayout",
+  args: [policyId as `0x${string}`],
+});
+
+// Submit via report
+runtime.report(prepareReportRequest(writeData)).result();
+```
+
+**Key Differences from Read:**
+- Uses `runtime.report()` instead of `callContract()`
+- Transaction is signed with CRE's private key
+- Costs gas (paid by CRE address)
+- Changes contract state
+
+### 7. Workflow Initialization
+
+```typescript
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability();
+  return [
+    cre.handler(
+      cron.trigger({ schedule: config.schedule }),
+      onCronTrigger
+    )
+  ];
+};
+
+export async function main() {
+  const runner = await Runner.newRunner<Config>({ configSchema });
+  await runner.run(initWorkflow);
+}
+```
+
+**Workflow Registration:**
+- Create cron capability
+- Register trigger with handler function
+- Return array of handlers (can have multiple)
+- Runner executes workflow with validated config
+
+## Running the Workflow
+
+### Local Simulation
+
+```bash
+cd cre
+npm install
+
+# Set environment variables
+export CRE_ETH_PRIVATE_KEY="your_private_key"
+export CRE_OPENWEATHER_API_KEY="your_api_key"
+
+# Run workflow
+npx ts-node main.ts
+```
+
+**Expected Output:**
+
+```
+[INFO] Workflow triggered
+[INFO] Aggregated median rainfall: 7.5 mm
+[INFO] ALERT: Drought condition detected! Rainfall 7.5 is below threshold 10.
+[INFO] Reading active policies from contract at 0x23d747751abF06b68539f0684abe21E2A76901fc...
+[INFO] Found active policy ID: 0xabcd1234...
+[INFO] Executing payout transaction on Base...
+[INFO] Payout Executed for rainfall: 7.5. Policy ID: 0xabcd1234...
+```
+
+### Production Deployment
+
+<Warning>
+  CRE production deployment is currently in private beta. Contact Chainlink for access.
+</Warning>
+
+```bash
+# Deploy to Chainlink CRE network
+chainlink cre deploy \
+  --workflow-path ./main.ts \
+  --config-path ./config.json \
+  --secrets-path ./secrets.yaml
+
+# Monitor logs
+chainlink cre logs --workflow-id aridguard-prod --follow
+```
+
+## Debugging
+
+### Enable Verbose Logging
+
+```typescript
+const onCronTrigger = (runtime: Runtime<Config>) => {
+  runtime.log(`=== Workflow Execution Started ===");
+  runtime.log(`Timestamp: ${new Date().toISOString()}`);
+  runtime.log(`Config: ${JSON.stringify(runtime.config)}`);
+  
+  // ... rest of function
+  
+  runtime.log(`=== Workflow Execution Completed ===");
+};
+```
+
+### Test Individual Components
+
+```typescript
+// Test weather fetching
+async function testWeatherFetch() {
+  const response = await fetch(
+    `https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric&appid=${apiKey}`
+  );
+  const data = await response.json();
+  console.log('Weather data:', data);
+  console.log('Rainfall:', data.rain?.["1h"] || 0);
+}
+
+// Test contract reading
+async function testContractRead() {
+  const client = createPublicClient({
+    chain: baseSepolia,
+    transport: http()
+  });
+  
+  const policyId = await client.readContract({
+    address: '0x23d747751abF06b68539f0684abe21E2A76901fc',
+    abi: ABI,
+    functionName: 'activePolicyIds',
+    args: [0n]
+  });
+  
+  console.log('Policy ID:', policyId);
+}
+```
+
+## Error Handling
+
+### HTTP Failures
+
+```typescript
+try {
+  const response = sendRequester
+    .sendRequest({ url: weatherApiUrl, method: "GET" })
+    .result();
+    
+  if (!ok(response)) {
+    runtime.log(`ERROR: API returned status ${response.statusCode}`);
+    throw new Error(`HTTP request failed`);
+  }
+} catch (error) {
+  runtime.log(`ERROR: Failed to fetch weather data: ${error.message}`);
+  // Could implement retry logic or fallback API
+  throw error;
+}
+```
+
+### Contract Call Failures
+
+```typescript
+try {
+  const contractCall = evmClient.callContract(runtime, {
+    call: encodeCallMsg({ from: zeroAddress, to: contractAddress, data: readData }),
+    blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+  }).result();
+} catch (error) {
+  runtime.log(`ERROR: Contract read failed: ${error.message}`);
+  runtime.log(`Contract: ${contractAddress}`);
+  runtime.log(`Chain: ${chainName}`);
+  throw error;
+}
+```
+
+## Performance Optimization
+
+### Reduce Execution Frequency
+
+For production, adjust cron schedule:
+
+```json
+{
+  "schedule": "0 * * * *"  // Every hour instead of every minute
+}
+```
+
+**Trade-offs:**
+- Less frequent checks = lower operational costs
+- Longer delay between drought and payout
+- Balance based on use case requirements
+
+### Batch Policy Processing
+
+Instead of processing one policy:
+
+```typescript
+// Read multiple policies
+const policyCount = 10;
+const policyIds: string[] = [];
+
+for (let i = 0; i < policyCount; i++) {
+  try {
+    const policyId = await readPolicyId(i);
+    if (policyId) policyIds.push(policyId);
+  } catch (error) {
+    break; // No more policies
+  }
+}
+
+runtime.log(`Found ${policyIds.length} active policies`);
+
+// Execute batch payout (requires contract modification)
+const batchPayoutData = encodeFunctionData({
+  abi: batchPayoutAbi,
+  functionName: "executeBatchPayout",
+  args: [policyIds],
+});
+
+runtime.report(prepareReportRequest(batchPayoutData)).result();
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Frontend Architecture"
+    icon="window"
+    href="/architecture/frontend"
+  >
+    Learn how the UI interacts with CRE and contracts
+  </Card>
+  <Card
+    title="Smart Contracts"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Understand the on-chain settlement layer
+  </Card>
+</CardGroup>

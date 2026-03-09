@@ -1,0 +1,247 @@
+---
+title: Security Model
+description: Security architecture and access control mechanisms
+---
+
+The AridGuard contract implements a multi-layered security model to protect farmer funds and ensure only authorized entities can trigger payouts.
+
+## Access Control
+
+### Owner Role
+
+The contract inherits from OpenZeppelin's `Ownable` contract:
+
+```solidity
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract AridGuard is Ownable {
+    constructor(address _creAddress) Ownable(msg.sender) {
+        creAddress = _creAddress;
+    }
+}
+```
+
+<ParamField path="owner" type="address">
+  The deployer address that has administrative privileges
+</ParamField>
+
+#### Owner Capabilities
+
+The owner can:
+- Update the CRE address via `setCREAddress()`
+- Transfer ownership to a new address
+
+<Warning>
+  The owner role should be transferred to a multi-sig wallet or governance contract in production.
+</Warning>
+
+### Climate Risk Engine (CRE) Role
+
+The CRE address is the only entity authorized to execute payouts.
+
+```solidity
+address public creAddress;
+
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+<ParamField path="creAddress" type="address">
+  Authorized address that can trigger insurance payouts
+</ParamField>
+
+## onlyCRE Modifier
+
+The `onlyCRE` modifier is the core security mechanism for payout execution.
+
+### Implementation
+
+```solidity
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+### Usage
+
+The modifier is applied to the `executePayout` function:
+
+```solidity
+function executePayout(bytes32 policyId) external onlyCRE {
+    // Only callable by the authorized CRE address
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    
+    policy.isActive = false; // Prevents double payout
+    
+    uint256 payoutAmount = policy.premiumPaid * 10;
+    
+    require(address(this).balance >= payoutAmount, "Insufficient contract balance");
+    
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+    
+    emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+}
+```
+
+### Security Properties
+
+<ResponseField name="Single Authorized Caller" type="boolean">
+  Only the `creAddress` can call functions with the `onlyCRE` modifier
+</ResponseField>
+
+<ResponseField name="Revert on Unauthorized" type="boolean">
+  Any call from an address other than `creAddress` will revert with an error message
+</ResponseField>
+
+<ResponseField name="No Bypass Mechanism" type="boolean">
+  There is no way to bypass this check - even the owner cannot execute payouts
+</ResponseField>
+
+## Payout Protection
+
+### Double Payout Prevention
+
+The contract prevents double payouts through the `isActive` flag:
+
+```solidity
+require(policy.isActive, "Policy is not active");
+policy.isActive = false; // Prevents double payout
+```
+
+<Note>
+  Once a policy receives a payout, `isActive` is set to `false`, making it ineligible for future payouts.
+</Note>
+
+### Balance Checks
+
+Before executing a payout, the contract verifies sufficient balance:
+
+```solidity
+require(address(this).balance >= payoutAmount, "Insufficient contract balance");
+```
+
+This prevents the transaction from failing mid-execution.
+
+### Transfer Safety
+
+The contract uses low-level `call` for ETH transfers with success verification:
+
+```solidity
+(bool success, ) = policy.farmer.call{value: payoutAmount}("");
+require(success, "Payout transfer failed");
+```
+
+<ParamField path="success" type="bool">
+  Return value indicating whether the ETH transfer succeeded
+</ParamField>
+
+## Reentrancy Considerations
+
+The contract follows the Checks-Effects-Interactions pattern:
+
+1. **Checks**: Verify policy is active and balance is sufficient
+2. **Effects**: Set `policy.isActive = false`
+3. **Interactions**: Transfer ETH to farmer
+
+This ordering prevents reentrancy attacks, as the state is updated before the external call.
+
+```solidity
+// 1. Checks
+require(policy.isActive, "Policy is not active");
+require(address(this).balance >= payoutAmount, "Insufficient contract balance");
+
+// 2. Effects
+policy.isActive = false;
+
+// 3. Interactions
+(bool success, ) = policy.farmer.call{value: payoutAmount}("");
+```
+
+## Administrative Functions
+
+### setCREAddress
+
+Only the owner can update the CRE address:
+
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner {
+    creAddress = _creAddress;
+}
+```
+
+<Warning>
+  Changing the CRE address is a critical operation. Ensure the new address is correct and controlled by authorized infrastructure.
+</Warning>
+
+### Best Practices
+
+<ResponseField name="Multi-sig Ownership" type="recommendation">
+  Transfer ownership to a multi-sig wallet (e.g., Gnosis Safe) to prevent single-point-of-failure
+</ResponseField>
+
+<ResponseField name="CRE Key Management" type="recommendation">
+  Store the CRE private key in a secure vault (e.g., AWS Secrets Manager, HashiCorp Vault)
+</ResponseField>
+
+<ResponseField name="Monitoring" type="recommendation">
+  Monitor contract events and transactions using block explorers and alerting systems
+</ResponseField>
+
+<ResponseField name="Regular Audits" type="recommendation">
+  Conduct security audits before mainnet deployment
+</ResponseField>
+
+## Trust Assumptions
+
+The security model relies on:
+
+1. **Trusted CRE**: The CRE address is assumed to be honest and will only execute payouts for valid drought conditions
+2. **Secure Key Management**: The CRE private key must be protected from unauthorized access
+3. **Owner Integrity**: The owner must act in good faith when updating the CRE address
+
+<Note>
+  Future versions could implement decentralized governance or oracle networks to reduce trust assumptions.
+</Note>
+
+## Vulnerability Mitigations
+
+### Integer Overflow
+
+Solidity 0.8.28 includes built-in overflow protection:
+
+```solidity
+uint256 payoutAmount = policy.premiumPaid * 10;
+```
+
+If this multiplication would overflow, the transaction automatically reverts.
+
+### Denial of Service
+
+The contract has no loops over unbounded arrays in critical functions, preventing DoS attacks through gas exhaustion.
+
+### Front-Running
+
+Policy purchases use `block.timestamp` in the ID generation:
+
+```solidity
+bytes32 policyId = keccak256(abi.encodePacked(msg.sender, lat, long, block.timestamp));
+```
+
+This ensures each policy has a unique ID even if parameters are identical.
+
+## Emergency Procedures
+
+In case of a security incident:
+
+1. **Pause New Policies**: Deploy a new version without the `purchasePolicy` function
+2. **Update CRE Address**: Call `setCREAddress` to disable the compromised address
+3. **Contract Migration**: Deploy a new contract and migrate policies if necessary
+
+<Warning>
+  There is no built-in pause mechanism. Consider adding OpenZeppelin's `Pausable` for production deployments.
+</Warning>

@@ -1,0 +1,251 @@
+---
+title: 'Network Configuration'
+description: 'Configure network settings for AridGuard deployment'
+icon: 'network-wired'
+---
+
+AridGuard supports multiple EVM-compatible networks through the Chainlink CRE SDK. This guide covers network configuration for both testnet and production deployments.
+
+## Configuration File
+
+Network settings are defined in `cre/config.json`. This file controls how the CRE workflow connects to the blockchain and interacts with smart contracts.
+
+### Default Configuration
+
+```json cre/config.json
+{
+  "schedule": "* * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "contractAddress": "0x23d747751abF06b68539f0684abe21E2A76901fc"
+  }
+}
+```
+
+## Configuration Parameters
+
+### Schedule
+
+**Type:** `string` (cron format)
+**Default:** `"* * * * *"` (every minute)
+
+Defines how frequently the CRE workflow runs to check weather conditions.
+
+<AccordionGroup>
+  <Accordion title="Cron Format Examples">
+    - `"* * * * *"` - Every minute (useful for testing)
+    - `"0 * * * *"` - Every hour
+    - `"0 */6 * * *"` - Every 6 hours
+    - `"0 0 * * *"` - Once daily at midnight
+    - `"0 12 * * *"` - Once daily at noon
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Running the workflow every minute incurs higher API costs and blockchain transaction fees. For production, consider a schedule of every 6-24 hours depending on your drought monitoring requirements.
+</Warning>
+
+### Weather API URL
+
+**Type:** `string` (URL)
+**Default:** `"https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric"`
+
+The OpenWeather API endpoint for fetching rainfall data.
+
+**Parameters:**
+- `q` - City name or coordinates
+- `units` - Measurement units (`metric`, `imperial`, or `standard`)
+- `appid` - API key (automatically appended by the workflow from secrets)
+
+**Alternative formats:**
+```bash
+# By city name
+https://api.openweathermap.org/data/2.5/weather?q=London&units=metric
+
+# By coordinates
+https://api.openweathermap.org/data/2.5/weather?lat=35&lon=139&units=metric
+
+# By city ID
+https://api.openweathermap.org/data/2.5/weather?id=524901&units=metric
+```
+
+<Note>
+  The workflow expects rainfall data in the `rain["1h"]` field of the API response. Ensure your API endpoint returns this data structure.
+</Note>
+
+### Threshold Rainfall
+
+**Type:** `number` (millimeters)
+**Default:** `10`
+
+The rainfall threshold in millimeters below which a drought condition is triggered and payouts are executed.
+
+**Example configurations:**
+- `5` - Severe drought (very little rain)
+- `10` - Moderate drought (default)
+- `25` - Mild drought (less restrictive)
+
+<Info>
+  Set this value based on agricultural requirements for your target region. Consult local climate data and farming practices to determine appropriate thresholds.
+</Info>
+
+### EVM Configuration
+
+The `evm` object contains blockchain-specific settings.
+
+#### Chain Selector Name
+
+**Type:** `string`
+**Default:** `"ethereum-testnet-sepolia-base-1"`
+
+Identifies the target blockchain network using Chainlink's chain selector naming convention.
+
+**Supported networks:**
+
+| Network | Chain Selector Name | Testnet |
+|---------|-------------------|----------|
+| Base Sepolia | `ethereum-testnet-sepolia-base-1` | Yes |
+| Base Mainnet | `base-mainnet-1` | No |
+| Ethereum Sepolia | `ethereum-testnet-sepolia` | Yes |
+| Ethereum Mainnet | `ethereum-mainnet-1` | No |
+| Arbitrum Sepolia | `arbitrum-testnet-sepolia` | Yes |
+| Optimism Sepolia | `optimism-testnet-sepolia` | Yes |
+
+<Warning>
+  Always test on testnets before deploying to mainnet. Mainnet transactions use real funds and cannot be reversed.
+</Warning>
+
+#### Contract Address
+
+**Type:** `string` (Ethereum address)
+**Default:** `"0x23d747751abF06b68539f0684abe21E2A76901fc"`
+
+The deployed AridGuard smart contract address on the specified network.
+
+**Requirements:**
+- Must be a valid Ethereum address (42 characters starting with `0x`)
+- Must match the network specified in `chainSelectorName`
+- The contract must have the CRE address configured via `setCREAddress()`
+
+## Network Configuration Examples
+
+### Development (Base Sepolia)
+
+```json
+{
+  "schedule": "* * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=TestCity&units=metric",
+  "thresholdRainfall": 15,
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "contractAddress": "0xYourTestContractAddress"
+  }
+}
+```
+
+### Production (Base Mainnet)
+
+```json
+{
+  "schedule": "0 */12 * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?lat=-1.286389&lon=36.817223&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "base-mainnet-1",
+    "contractAddress": "0xYourMainnetContractAddress"
+  }
+}
+```
+
+### Multi-Region Configuration
+
+For monitoring multiple regions, you can deploy separate CRE workflow instances, each with its own configuration:
+
+```json
+// Region 1: Kenya
+{
+  "schedule": "0 0 * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "base-mainnet-1",
+    "contractAddress": "0xKenyaContractAddress"
+  }
+}
+
+// Region 2: Ethiopia  
+{
+  "schedule": "0 0 * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=AddisAbaba&units=metric",
+  "thresholdRainfall": 8,
+  "evm": {
+    "chainSelectorName": "base-mainnet-1",
+    "contractAddress": "0xEthiopiaContractAddress"
+  }
+}
+```
+
+## Code Implementation
+
+The network configuration is loaded and validated in `cre/main.ts`:
+
+```typescript cre/main.ts
+const configSchema = z.object({
+  schedule: z.string(),
+  weatherApiUrl: z.string(),
+  thresholdRainfall: z.number(),
+  evm: z.object({
+    chainSelectorName: z.string(),
+    contractAddress: z.string()
+  }).optional()
+});
+
+type Config = z.infer<typeof configSchema>;
+```
+
+The workflow uses this configuration to connect to the network:
+
+```typescript cre/main.ts
+const chainName = runtime.config.evm?.chainSelectorName || "base-sepolia";
+const contractAddress = (runtime.config.evm?.contractAddress || "0x23d747751abF06b68539f0684abe21E2A76901fc") as Address;
+
+const network = getNetwork({
+  chainFamily: "evm",
+  chainSelectorName: chainName,
+  isTestnet: true,
+});
+
+const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector);
+```
+
+## Validation and Testing
+
+After updating your network configuration:
+
+1. **Validate JSON syntax**
+   ```bash
+   cat config.json | jq .
+   ```
+
+2. **Test the workflow locally**
+   ```bash
+   cd cre
+   npx ts-node main.ts
+   ```
+
+3. **Verify network connectivity**
+   Check the logs for successful connection messages:
+   ```
+   Reading active policies from contract at 0x...
+   ```
+
+4. **Confirm contract interaction**
+   Ensure the workflow can read from and write to the contract
+
+## Related Resources
+
+- [Deployment Guide](/resources/deployment-guide) - Complete deployment instructions
+- [Environment Variables](/resources/environment-variables) - Configure secrets and keys
+- [Troubleshooting](/resources/troubleshooting) - Network connection issues

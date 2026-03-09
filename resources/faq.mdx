@@ -1,0 +1,431 @@
+---
+title: 'FAQ'
+description: 'Frequently asked questions about AridGuard'
+icon: 'circle-question'
+---
+
+Find answers to common questions about AridGuard, the decentralized parametric drought insurance platform.
+
+## General Questions
+
+<AccordionGroup>
+  <Accordion title="What is AridGuard?">
+    AridGuard is a decentralized parametric drought insurance application that provides automated protection for farmers against severe drought conditions. It uses the Chainlink Runtime Environment (CRE) to continuously monitor off-chain weather conditions and automatically trigger on-chain smart contract payouts when rainfall drops below a critical threshold.
+
+    Unlike traditional insurance:
+    - **No manual claims processing** - Payouts are automatic
+    - **Transparent and deterministic** - Rules are encoded in smart contracts
+    - **Instant settlement** - Payments execute immediately when conditions are met
+    - **Trustless operation** - No insurance company can deny valid claims
+  </Accordion>
+
+  <Accordion title="How does parametric insurance work?">
+    Parametric insurance pays out based on predefined parameters (triggers) rather than actual loss assessment:
+
+    1. **Define the parameter**: Rainfall below 10mm per hour
+    2. **Purchase policy**: Pay a premium and specify your farm's location
+    3. **Automatic monitoring**: CRE workflow checks weather data regularly
+    4. **Trigger met**: If rainfall drops below threshold, payout executes automatically
+    5. **Instant payment**: Receive 10x your premium directly to your wallet
+
+    No need to:
+    - File claims forms
+    - Provide proof of loss
+    - Wait for adjuster visits
+    - Negotiate settlement amounts
+  </Accordion>
+
+  <Accordion title="What blockchain networks are supported?">
+    AridGuard is deployed on **Base Sepolia** testnet for development and testing. The smart contracts can be deployed to any EVM-compatible network, including:
+
+    - **Base Mainnet** (recommended for production)
+    - Ethereum Mainnet
+    - Arbitrum
+    - Optimism
+    - Polygon
+
+    The CRE workflow supports these networks through Chainlink's chain selectors. See the [Network Configuration](/resources/network-configuration) guide for details.
+  </Accordion>
+
+  <Accordion title="Is this production-ready?">
+    AridGuard is currently a **demonstration project** built for educational and hackathon purposes. Before using in production:
+
+    **Required improvements:**
+    - Smart contract security audit
+    - Comprehensive testing on mainnet
+    - Insurance pool liquidity management
+    - Multi-oracle data aggregation
+    - Legal compliance review
+    - Risk modeling and pricing adjustments
+
+    **Use testnet for experimentation** and conduct thorough due diligence before deploying with real funds.
+  </Accordion>
+</AccordionGroup>
+
+## Technical Questions
+
+<AccordionGroup>
+  <Accordion title="What is the Chainlink Runtime Environment (CRE)?">
+    The Chainlink Runtime Environment (CRE) is a serverless off-chain compute platform that enables smart contracts to:
+
+    - **Access off-chain data** via HTTP requests
+    - **Perform complex computations** that are too expensive on-chain
+    - **Execute on scheduled triggers** (cron jobs)
+    - **Securely interact with blockchains** through the EVMClient capability
+
+    In AridGuard:
+    - CRE fetches weather data from OpenWeather API
+    - Aggregates rainfall measurements using median consensus
+    - Evaluates drought conditions against the threshold
+    - Executes payout transactions on the smart contract
+
+    This bridges real-world data to blockchain in a secure, decentralized way.
+  </Accordion>
+
+  <Accordion title="How often does the system check weather conditions?">
+    The check frequency is configured in `cre/config.json` with the `schedule` parameter using cron syntax:
+
+    ```json
+    {
+      "schedule": "* * * * *"  // Every minute (testing)
+    }
+    ```
+
+    **Common schedules:**
+    - `"* * * * *"` - Every minute (useful for testing, high API costs)
+    - `"0 * * * *"` - Every hour
+    - `"0 */6 * * *"` - Every 6 hours
+    - `"0 0 * * *"` - Once daily at midnight
+
+    **Recommendation:** For production, use 6-24 hour intervals to balance timely detection with API costs and gas fees.
+  </Accordion>
+
+  <Accordion title="What happens if OpenWeather API is down?">
+    If the OpenWeather API is unavailable or returns an error:
+
+    1. The CRE workflow logs the error
+    2. No payout is executed (fail-safe approach)
+    3. The workflow continues on the next scheduled run
+
+    **Code implementation:**
+    ```typescript cre/main.ts
+    if (!ok(response)) {
+      throw new Error(`HTTP request failed with status: ${response.statusCode}`);
+    }
+    ```
+
+    **Production enhancements:**
+    - Use multiple weather data providers
+    - Implement consensus aggregation across providers
+    - Add fallback mechanisms
+    - Set up monitoring and alerts for API failures
+  </Accordion>
+
+  <Accordion title="How is the payout amount calculated?">
+    The payout is a **fixed multiple of the premium paid**:
+
+    ```solidity contracts/AridGuard.sol
+    // Payout is 10x the premium
+    uint256 payoutAmount = policy.premiumPaid * 10;
+    ```
+
+    **Example:**
+    - Premium paid: 0.01 ETH
+    - Payout received: 0.1 ETH (if drought condition is met)
+
+    This is a simplified model. Production systems would calculate payouts based on:
+    - Severity of drought (how far below threshold)
+    - Duration of drought conditions
+    - Crop type and expected yield
+    - Risk assessment and actuarial modeling
+  </Accordion>
+
+  <Accordion title="Can multiple policies be active simultaneously?">
+    Yes! The AridGuard contract supports multiple active policies:
+
+    ```solidity contracts/AridGuard.sol
+    mapping(bytes32 => Policy) public policies;
+    bytes32[] public activePolicyIds;
+    ```
+
+    Each policy is identified by a unique ID generated from:
+    - Farmer's address
+    - Geographic coordinates (latitude, longitude)
+    - Purchase timestamp
+
+    The CRE workflow reads all active policies and can execute payouts for each one when drought conditions are detected.
+
+    **Note:** The current implementation processes one policy at a time. For production, batch processing would be more gas-efficient.
+  </Accordion>
+
+  <Accordion title="What are the gas costs?">
+    Gas costs vary by operation:
+
+    **On Base Sepolia (approximate):**
+    - Deploy contract: ~0.001-0.003 ETH
+    - Purchase policy: ~0.0001-0.0003 ETH
+    - Execute payout: ~0.0001-0.0003 ETH
+    - Set CRE address: ~0.00005-0.0001 ETH
+
+    **Cost factors:**
+    - Network congestion (higher traffic = higher gas)
+    - Transaction complexity
+    - Contract optimization
+    - L2 network choice (Base is generally cheaper than Ethereum mainnet)
+
+    **Cost optimization:**
+    - Deploy on L2 networks (Base, Arbitrum, Optimism)
+    - Batch transactions when possible
+    - Optimize smart contract code
+    - Use gas price strategies (wait for low traffic periods)
+  </Accordion>
+</AccordionGroup>
+
+## Deployment and Configuration
+
+<AccordionGroup>
+  <Accordion title="Do I need two separate wallets?">
+    **Yes, it's recommended** to use two separate wallets for security isolation:
+
+    1. **Deployment Wallet**
+       - Used for: Deploying smart contracts
+       - Needs: Base Sepolia ETH for deployment gas
+       - Private key: `PRIVATE_KEY` in `contracts/.env`
+       - Permissions: Contract owner functions
+
+    2. **CRE Wallet**
+       - Used for: Executing payout transactions
+       - Needs: Base Sepolia ETH for transaction gas
+       - Private key: `CRE_ETH_PRIVATE_KEY` in `cre/.env`
+       - Must be: Set as `creAddress` in the contract
+
+    **Why separate wallets?**
+    - Limits blast radius if one key is compromised
+    - Different operational responsibilities
+    - Better security practices
+    - Easier auditing and monitoring
+  </Accordion>
+
+  <Accordion title="How do I get testnet ETH?">
+    To obtain Base Sepolia testnet ETH:
+
+    **Method 1: Base Sepolia Faucet**
+    1. Visit [Coinbase Faucet](https://portal.cdp.coinbase.com/products/faucet)
+    2. Connect your wallet
+    3. Request testnet ETH
+
+    **Method 2: Bridge from Ethereum Sepolia**
+    1. Get Ethereum Sepolia ETH from [Sepolia Faucet](https://sepoliafaucet.com/)
+    2. Use the [Base Bridge](https://bridge.base.org/) to bridge to Base Sepolia
+
+    **Method 3: Community Faucets**
+    - Search for "Base Sepolia faucet" for additional options
+    - Some require social media verification
+
+    **Amount needed:**
+    - Deployment wallet: ~0.01-0.05 ETH
+    - CRE wallet: ~0.01 ETH
+  </Accordion>
+
+  <Accordion title="How do I get an OpenWeather API key?">
+    Follow these steps:
+
+    1. **Sign up**: Visit [openweathermap.org](https://openweathermap.org/) and create an account
+    2. **Navigate to API keys**: Go to your account settings → API keys
+    3. **Generate key**: Click "Generate" to create a new API key
+    4. **Wait for activation**: New keys take ~10 minutes to activate
+    5. **Copy to .env**: Add the key to `cre/.env` as `CRE_OPENWEATHER_API_KEY`
+
+    **Free tier limits:**
+    - 60 calls per minute
+    - 1,000,000 calls per month
+    - Current weather data access
+
+    **Testing your key:**
+    ```bash
+    curl "https://api.openweathermap.org/data/2.5/weather?q=London&appid=YOUR_API_KEY"
+    ```
+  </Accordion>
+
+  <Accordion title="Can I customize the drought threshold?">
+    **Yes!** The drought threshold is configurable in `cre/config.json`:
+
+    ```json
+    {
+      "thresholdRainfall": 10  // millimeters
+    }
+    ```
+
+    **Setting appropriate thresholds:**
+    - **5mm or less**: Severe drought, very restrictive
+    - **10mm**: Moderate drought (default)
+    - **15-25mm**: Mild drought, less restrictive
+    - **50mm+**: Normal to wet conditions
+
+    **Factors to consider:**
+    - Local climate patterns
+    - Crop water requirements
+    - Seasonal variations
+    - Historical rainfall data
+    - Farmer risk tolerance
+
+    **Research your region's climate** before setting thresholds for production use.
+  </Accordion>
+
+  <Accordion title="How do I monitor the system after deployment?">
+    Monitor AridGuard through multiple channels:
+
+    **1. CRE Workflow Logs**
+    ```bash
+    cd cre
+    npx ts-node main.ts 2>&1 | tee -a workflow.log
+    ```
+    Monitor for:
+    - Weather data fetching
+    - Drought condition alerts
+    - Payout execution status
+    - Error messages
+
+    **2. Blockchain Explorer**
+    - BaseScan: [https://sepolia.basescan.org](https://sepolia.basescan.org)
+    - Search for your contract address
+    - Monitor transactions, events, and contract balance
+
+    **3. Wallet Monitoring**
+    - Check CRE wallet balance (needs gas for transactions)
+    - Monitor contract balance (needs funds for payouts)
+    - Set up alerts for low balances
+
+    **4. Event Monitoring**
+    Listen for contract events:
+    ```javascript
+    contract.on("PolicyPurchased", (policyId, farmer, lat, long, premium) => {
+      console.log("New policy purchased:", policyId);
+    });
+
+    contract.on("PayoutExecuted", (policyId, farmer, payoutAmount) => {
+      console.log("Payout executed:", policyId, payoutAmount);
+    });
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title='What does "Only CRE can execute this" error mean?'>
+    This error occurs when the CRE wallet address is not authorized in the contract.
+
+    **Cause:**
+    The wallet address from `CRE_ETH_PRIVATE_KEY` has not been set as the `creAddress` in the AridGuard contract.
+
+    **Solution:**
+    1. Derive your CRE wallet address from the private key
+    2. As the contract owner, call `setCREAddress()`:
+       ```javascript
+       await contract.setCREAddress("0xYourCREWalletAddress");
+       ```
+    3. Verify it was set correctly:
+       ```javascript
+       const creAddress = await contract.creAddress();
+       console.log("CRE Address:", creAddress);
+       ```
+
+    See the [Troubleshooting Guide](/resources/troubleshooting) for detailed steps.
+  </Accordion>
+
+  <Accordion title="Why isn't the payout executing even though it's raining less?">
+    Several possible reasons:
+
+    **1. No active policies**
+    - Check if any policies exist in the contract
+    - Verify policies are still active (not already paid out)
+
+    **2. Insufficient contract balance**
+    - Contract needs 10x the premium to pay out
+    - Check balance: `await ethers.provider.getBalance(contractAddress)`
+    - Fund the contract if needed
+
+    **3. CRE wallet has no gas**
+    - The CRE wallet needs ETH for transaction gas fees
+    - Check wallet balance on BaseScan
+    - Send more testnet ETH if needed
+
+    **4. CRE address not authorized**
+    - Verify `setCREAddress()` was called
+    - Confirm the address matches your CRE wallet
+
+    **5. Weather data not meeting threshold**
+    - Check the actual rainfall value in logs
+    - Verify the threshold is set appropriately
+    - Test location might have different weather than expected
+
+    **Debug by reviewing logs:**
+    ```bash
+    npx ts-node main.ts
+    # Look for:
+    # - "Aggregated median rainfall: X mm"
+    # - "ALERT: Drought condition detected!"
+    # - Any error messages
+    ```
+  </Accordion>
+
+  <Accordion title="How do I reset and redeploy everything?">
+    To start fresh:
+
+    **1. Clean build artifacts**
+    ```bash
+    cd contracts
+    npx hardhat clean
+    rm -rf artifacts cache
+    ```
+
+    **2. Deploy new contract**
+    ```bash
+    npx hardhat compile
+    npx hardhat ignition deploy ignition/modules/AridGuard.js --network base_sepolia
+    ```
+
+    **3. Update CRE configuration**
+    ```json
+    // cre/config.json
+    {
+      "evm": {
+        "contractAddress": "NEW_CONTRACT_ADDRESS_HERE"
+      }
+    }
+    ```
+
+    **4. Set CRE address in new contract**
+    ```javascript
+    await newContract.setCREAddress("YOUR_CRE_WALLET_ADDRESS");
+    ```
+
+    **5. Fund the new contract**
+    ```javascript
+    await signer.sendTransaction({
+      to: "NEW_CONTRACT_ADDRESS",
+      value: ethers.parseEther("0.1")
+    });
+    ```
+
+    **6. Test the workflow**
+    ```bash
+    cd cre
+    npx ts-node main.ts
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Need More Help?
+
+If your question isn't answered here:
+
+- Check the [Troubleshooting Guide](/resources/troubleshooting) for detailed debugging steps
+- Review the [Deployment Guide](/resources/deployment-guide) for setup instructions
+- See [Environment Variables](/resources/environment-variables) for configuration details
+- Read the source code in the [GitHub repository](https://github.com/OOlajide/aridguard)
+
+<Card title="Visit the Repository" icon="github" href="https://github.com/OOlajide/aridguard">
+  Explore the source code, report issues, and contribute to AridGuard on GitHub.
+</Card>

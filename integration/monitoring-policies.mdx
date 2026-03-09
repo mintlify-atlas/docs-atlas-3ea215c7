@@ -1,0 +1,677 @@
+---
+title: Monitoring Policies
+description: Track policy status, events, and payout execution in real-time
+---
+
+## Overview
+
+Monitoring policies involves tracking on-chain events and contract state to provide users with real-time updates about their insurance coverage and payouts.
+
+<CardGroup cols={2}>
+  <Card title="Event Listening" icon="satellite-dish">
+    Subscribe to PolicyPurchased and PayoutExecuted events
+  </Card>
+  <Card title="State Reading" icon="book">
+    Query contract for policy details and status
+  </Card>
+  <Card title="Transaction Tracking" icon="magnifying-glass">
+    Monitor pending transactions and confirmations
+  </Card>
+  <Card title="User Notifications" icon="bell">
+    Alert users of important policy updates
+  </Card>
+</CardGroup>
+
+## Contract Events
+
+The AridGuard contract emits two main events:
+
+### PolicyPurchased Event
+
+```solidity
+event PolicyPurchased(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    int256 lat,
+    int256 long,
+    uint256 premium
+);
+```
+
+Emitted when a user purchases a new policy.
+
+### PayoutExecuted Event
+
+```solidity
+event PayoutExecuted(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    uint256 payoutAmount
+);
+```
+
+Emitted when CRE executes a payout for a policy.
+
+## Listening for Events
+
+### Real-Time Event Watching
+
+Use Wagmi's `useWatchContractEvent` to listen for events:
+
+```typescript
+import { useWatchContractEvent } from 'wagmi';
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from '../utils/constants';
+import { formatEther } from 'viem';
+
+export function EventMonitor() {
+  // Listen for new policy purchases
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PolicyPurchased',
+    onLogs(logs) {
+      logs.forEach(log => {
+        const { policyId, farmer, lat, long, premium } = log.args;
+        console.log('New Policy Purchased!');
+        console.log('Policy ID:', policyId);
+        console.log('Farmer:', farmer);
+        console.log('Location:', lat, long);
+        console.log('Premium:', formatEther(premium), 'ETH');
+        
+        // Show notification
+        showNotification(`New policy purchased: ${formatEther(premium)} ETH`);
+      });
+    },
+  });
+
+  // Listen for payouts
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PayoutExecuted',
+    onLogs(logs) {
+      logs.forEach(log => {
+        const { policyId, farmer, payoutAmount } = log.args;
+        console.log('Payout Executed!');
+        console.log('Policy ID:', policyId);
+        console.log('Farmer:', farmer);
+        console.log('Amount:', formatEther(payoutAmount), 'ETH');
+        
+        // Show notification
+        showNotification(`Payout received: ${formatEther(payoutAmount)} ETH! 🎉`);
+      });
+    },
+  });
+
+  return null; // Invisible monitoring component
+}
+```
+
+### User-Specific Event Filtering
+
+Filter events for the connected user:
+
+```typescript
+import { useAccount, useWatchContractEvent } from 'wagmi';
+import { useState } from 'react';
+
+interface PolicyEvent {
+  policyId: string;
+  timestamp: number;
+  type: 'purchase' | 'payout';
+  amount: bigint;
+}
+
+export function UserPolicyMonitor() {
+  const { address } = useAccount();
+  const [events, setEvents] = useState<PolicyEvent[]>([]);
+
+  // Listen for user's policy purchases
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PolicyPurchased',
+    args: {
+      farmer: address, // Filter by user address
+    },
+    onLogs(logs) {
+      logs.forEach(log => {
+        setEvents(prev => [...prev, {
+          policyId: log.args.policyId as string,
+          timestamp: Date.now(),
+          type: 'purchase',
+          amount: log.args.premium as bigint,
+        }]);
+      });
+    },
+  });
+
+  // Listen for user's payouts
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PayoutExecuted',
+    args: {
+      farmer: address,
+    },
+    onLogs(logs) {
+      logs.forEach(log => {
+        setEvents(prev => [...prev, {
+          policyId: log.args.policyId as string,
+          timestamp: Date.now(),
+          type: 'payout',
+          amount: log.args.payoutAmount as bigint,
+        }]);
+      });
+    },
+  });
+
+  return (
+    <div className="space-y-2">
+      <h3 className="font-bold">Your Policy Activity</h3>
+      {events.length === 0 ? (
+        <p className="text-gray-500 text-sm">No activity yet</p>
+      ) : (
+        <ul className="space-y-2">
+          {events.map((event, i) => (
+            <li key={i} className="bg-white border rounded p-3">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">
+                  {event.type === 'purchase' ? '🛡️ Policy Purchased' : '💰 Payout Received'}
+                </span>
+                <span className="text-sm text-gray-600">
+                  {formatEther(event.amount)} ETH
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                {new Date(event.timestamp).toLocaleString()}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+```
+
+## Reading Contract State
+
+### Get Policy Details
+
+Read policy information from the contract:
+
+```typescript
+import { useReadContract } from 'wagmi';
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from '../utils/constants';
+
+interface PolicyDetailsProps {
+  policyId: `0x${string}`;
+}
+
+export function PolicyDetails({ policyId }: PolicyDetailsProps) {
+  const { data: policy, isLoading } = useReadContract({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    functionName: 'policies',
+    args: [policyId],
+  });
+
+  if (isLoading) return <div>Loading policy...</div>;
+  if (!policy) return <div>Policy not found</div>;
+
+  const [farmer, lat, long, premiumPaid, isActive] = policy;
+
+  return (
+    <div className="bg-white border rounded-lg p-4 space-y-2">
+      <h3 className="font-bold">Policy Details</h3>
+      <div className="text-sm space-y-1">
+        <p><strong>Policy ID:</strong> {policyId.slice(0, 10)}...</p>
+        <p><strong>Owner:</strong> {farmer}</p>
+        <p><strong>Location:</strong> {Number(lat) / 100}°, {Number(long) / 100}°</p>
+        <p><strong>Premium:</strong> {formatEther(premiumPaid)} ETH</p>
+        <p><strong>Coverage:</strong> {formatEther(premiumPaid * 10n)} ETH</p>
+        <p>
+          <strong>Status:</strong>{' '}
+          <span className={isActive ? 'text-green-600' : 'text-gray-500'}>
+            {isActive ? '✅ Active' : '❌ Inactive'}
+          </span>
+        </p>
+      </div>
+    </div>
+  );
+}
+```
+
+### List Active Policies
+
+Retrieve all active policy IDs:
+
+```typescript
+import { useReadContract } from 'wagmi';
+import { useState, useEffect } from 'react';
+
+export function ActivePoliciesList() {
+  const [policyIds, setPolicyIds] = useState<`0x${string}`[]>([]);
+  
+  // Read first policy ID to check if any exist
+  const { data: firstPolicy } = useReadContract({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    functionName: 'activePolicyIds',
+    args: [0n],
+  });
+
+  // In production, you'd iterate through all indices
+  // or maintain an off-chain index
+
+  useEffect(() => {
+    if (firstPolicy) {
+      setPolicyIds([firstPolicy as `0x${string}`]);
+    }
+  }, [firstPolicy]);
+
+  return (
+    <div className="space-y-2">
+      <h3 className="font-bold">Active Policies</h3>
+      {policyIds.length === 0 ? (
+        <p className="text-gray-500 text-sm">No active policies</p>
+      ) : (
+        <div className="space-y-2">
+          {policyIds.map(policyId => (
+            <PolicyDetails key={policyId} policyId={policyId} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+<Note>
+  Reading all policies on-chain can be gas-intensive. Production systems should use an indexer like The Graph or maintain an off-chain database synced via events.
+</Note>
+
+## Historical Event Queries
+
+### Query Past Events
+
+Retrieve historical events using `getLogs`:
+
+```typescript
+import { createPublicClient, http, parseAbiItem } from 'viem';
+import { baseSepolia } from 'viem/chains';
+import { ARIDGUARD_ADDRESS } from '../utils/constants';
+
+const client = createPublicClient({
+  chain: baseSepolia,
+  transport: http(),
+});
+
+export async function getPolicyHistory(userAddress: `0x${string}`) {
+  // Query PolicyPurchased events
+  const purchaseLogs = await client.getLogs({
+    address: ARIDGUARD_ADDRESS,
+    event: parseAbiItem('event PolicyPurchased(bytes32 indexed policyId, address indexed farmer, int256 lat, int256 long, uint256 premium)'),
+    args: {
+      farmer: userAddress,
+    },
+    fromBlock: 0n,
+    toBlock: 'latest',
+  });
+
+  // Query PayoutExecuted events
+  const payoutLogs = await client.getLogs({
+    address: ARIDGUARD_ADDRESS,
+    event: parseAbiItem('event PayoutExecuted(bytes32 indexed policyId, address indexed farmer, uint256 payoutAmount)'),
+    args: {
+      farmer: userAddress,
+    },
+    fromBlock: 0n,
+    toBlock: 'latest',
+  });
+
+  return {
+    purchases: purchaseLogs.map(log => ({
+      policyId: log.args.policyId,
+      lat: log.args.lat,
+      long: log.args.long,
+      premium: log.args.premium,
+      blockNumber: log.blockNumber,
+      transactionHash: log.transactionHash,
+    })),
+    payouts: payoutLogs.map(log => ({
+      policyId: log.args.policyId,
+      amount: log.args.payoutAmount,
+      blockNumber: log.blockNumber,
+      transactionHash: log.transactionHash,
+    })),
+  };
+}
+```
+
+### Using Historical Data in React
+
+```typescript
+import { useEffect, useState } from 'react';
+import { useAccount } from 'wagmi';
+
+interface PolicyHistory {
+  purchases: any[];
+  payouts: any[];
+}
+
+export function PolicyHistoryComponent() {
+  const { address } = useAccount();
+  const [history, setHistory] = useState<PolicyHistory | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!address) return;
+
+    async function loadHistory() {
+      setLoading(true);
+      try {
+        const data = await getPolicyHistory(address);
+        setHistory(data);
+      } catch (error) {
+        console.error('Failed to load history:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadHistory();
+  }, [address]);
+
+  if (loading) return <div>Loading history...</div>;
+  if (!history) return <div>No history available</div>;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="font-bold mb-2">Policies Purchased ({history.purchases.length})</h3>
+        {history.purchases.map((purchase, i) => (
+          <div key={i} className="bg-white border rounded p-3 mb-2">
+            <p className="text-sm">
+              <strong>Policy:</strong> {purchase.policyId?.slice(0, 10)}...
+            </p>
+            <p className="text-sm">
+              <strong>Premium:</strong> {formatEther(purchase.premium)} ETH
+            </p>
+            <a
+              href={`https://sepolia.basescan.org/tx/${purchase.transactionHash}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-600 text-xs hover:underline"
+            >
+              View Transaction →
+            </a>
+          </div>
+        ))}
+      </div>
+
+      <div>
+        <h3 className="font-bold mb-2">Payouts Received ({history.payouts.length})</h3>
+        {history.payouts.length === 0 ? (
+          <p className="text-gray-500 text-sm">No payouts yet</p>
+        ) : (
+          history.payouts.map((payout, i) => (
+            <div key={i} className="bg-green-50 border border-green-200 rounded p-3 mb-2">
+              <p className="text-sm">
+                <strong>Amount:</strong> {formatEther(payout.amount)} ETH
+              </p>
+              <a
+                href={`https://sepolia.basescan.org/tx/${payout.transactionHash}`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-green-700 text-xs hover:underline"
+              >
+                View Transaction →
+              </a>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+## Notification System
+
+### Browser Notifications
+
+Alert users of important events:
+
+```typescript
+import { useEffect } from 'react';
+
+export function useNotifications() {
+  useEffect(() => {
+    // Request notification permission
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  const notify = (title: string, body: string) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(title, {
+        body,
+        icon: '/aridguard-icon.png',
+        badge: '/aridguard-badge.png',
+      });
+    }
+  };
+
+  return { notify };
+}
+
+// Usage in event listener
+export function NotificationManager() {
+  const { notify } = useNotifications();
+
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PayoutExecuted',
+    onLogs(logs) {
+      logs.forEach(log => {
+        const amount = formatEther(log.args.payoutAmount as bigint);
+        notify(
+          'Payout Received!',
+          `You received ${amount} ETH for your drought insurance policy.`
+        );
+      });
+    },
+  });
+
+  return null;
+}
+```
+
+### Toast Notifications
+
+Using a library like `react-hot-toast`:
+
+```typescript
+import toast from 'react-hot-toast';
+import { useWatchContractEvent } from 'wagmi';
+
+export function ToastNotifications() {
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PolicyPurchased',
+    onLogs(logs) {
+      logs.forEach(log => {
+        toast.success('Policy purchased successfully! 🛡️');
+      });
+    },
+  });
+
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PayoutExecuted',
+    onLogs(logs) {
+      logs.forEach(log => {
+        const amount = formatEther(log.args.payoutAmount as bigint);
+        toast.success(
+          `Payout received: ${amount} ETH! 🎉`,
+          { duration: 6000 }
+        );
+      });
+    },
+  });
+
+  return null;
+}
+```
+
+## Dashboard Component
+
+Complete user dashboard showing all policy information:
+
+```typescript
+import { useAccount } from 'wagmi';
+import { UserPolicyMonitor } from './UserPolicyMonitor';
+import { PolicyHistoryComponent } from './PolicyHistoryComponent';
+import { NotificationManager } from './NotificationManager';
+
+export function PolicyDashboard() {
+  const { address, isConnected } = useAccount();
+
+  if (!isConnected) {
+    return (
+      <div className="text-center p-8">
+        <p>Connect your wallet to view your policies</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 space-y-6">
+      {/* Hidden notification manager */}
+      <NotificationManager />
+
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold">My Policies</h1>
+        <p className="text-gray-600">Wallet: {address}</p>
+      </div>
+
+      {/* Real-time activity feed */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <UserPolicyMonitor />
+      </div>
+
+      {/* Historical data */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <PolicyHistoryComponent />
+      </div>
+    </div>
+  );
+}
+```
+
+## Indexing with The Graph
+
+For production applications, use The Graph to index blockchain data:
+
+### Subgraph Schema
+
+```graphql
+type Policy @entity {
+  id: ID! # policyId
+  farmer: Bytes!
+  lat: BigInt!
+  long: BigInt!
+  premiumPaid: BigInt!
+  isActive: Boolean!
+  purchasedAt: BigInt!
+  payout: Payout
+}
+
+type Payout @entity {
+  id: ID! # transactionHash
+  policy: Policy!
+  amount: BigInt!
+  executedAt: BigInt!
+}
+```
+
+### Querying The Graph
+
+```typescript
+import { gql, useQuery } from '@apollo/client';
+
+const GET_USER_POLICIES = gql`
+  query GetUserPolicies($farmer: Bytes!) {
+    policies(where: { farmer: $farmer }, orderBy: purchasedAt, orderDirection: desc) {
+      id
+      lat
+      long
+      premiumPaid
+      isActive
+      purchasedAt
+      payout {
+        amount
+        executedAt
+      }
+    }
+  }
+`;
+
+export function GraphPolicyList() {
+  const { address } = useAccount();
+  const { data, loading, error } = useQuery(GET_USER_POLICIES, {
+    variables: { farmer: address?.toLowerCase() },
+    skip: !address,
+  });
+
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error loading policies</div>;
+
+  return (
+    <div className="space-y-2">
+      {data.policies.map((policy: any) => (
+        <div key={policy.id} className="bg-white border rounded p-4">
+          <p><strong>Policy ID:</strong> {policy.id.slice(0, 10)}...</p>
+          <p><strong>Premium:</strong> {formatEther(policy.premiumPaid)} ETH</p>
+          <p><strong>Status:</strong> {policy.isActive ? 'Active' : 'Inactive'}</p>
+          {policy.payout && (
+            <p className="text-green-600">
+              <strong>Payout:</strong> {formatEther(policy.payout.amount)} ETH
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+<Tip>
+  The Graph provides much better performance than direct RPC queries, especially for complex queries across many blocks.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Architecture Overview"
+    icon="diagram-project"
+    href="/architecture/overview"
+  >
+    Understand the complete system architecture
+  </Card>
+  <Card
+    title="Smart Contracts"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Deep dive into contract implementation
+  </Card>
+</CardGroup>

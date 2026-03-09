@@ -1,0 +1,171 @@
+---
+title: Introduction
+description: Decentralized parametric drought insurance powered by Chainlink CRE and Base
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="AridGuard Hero Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="AridGuard Hero Dark"
+/>
+
+## What is AridGuard?
+
+AridGuard is a **decentralized parametric drought insurance platform** that provides automated, deterministic protection for farmers against severe drought conditions. By leveraging the Chainlink Runtime Environment (CRE), AridGuard eliminates manual claims processing and ensures instant, transparent payouts when rainfall drops below critical thresholds.
+
+<CardGroup cols={2}>
+  <Card
+    title="Automated Monitoring"
+    icon="radar"
+    color="#92400e"
+  >
+    Continuous off-chain weather monitoring via Chainlink CRE workflows
+  </Card>
+  <Card
+    title="Instant Payouts"
+    icon="bolt"
+    color="#92400e"
+  >
+    Automatic on-chain settlements when drought conditions are detected
+  </Card>
+  <Card
+    title="No Manual Claims"
+    icon="shield-check"
+    color="#92400e"
+  >
+    Parametric insurance eliminates traditional claims processing delays
+  </Card>
+  <Card
+    title="Transparent & Secure"
+    icon="lock"
+    color="#92400e"
+  >
+    All policies and payouts recorded immutably on Base blockchain
+  </Card>
+</CardGroup>
+
+## How It Works
+
+AridGuard operates through three interconnected layers that work together to provide seamless drought insurance:
+
+<Steps>
+  <Step title="Policy Purchase">
+    Farmers connect their wallet and purchase insurance policies through the web interface, specifying their farm coordinates and paying a premium.
+  </Step>
+  
+  <Step title="Automated Monitoring">
+    Chainlink CRE workflows continuously monitor rainfall data from OpenWeather API for insured locations using scheduled cron triggers.
+  </Step>
+  
+  <Step title="Condition Evaluation">
+    The CRE workflow aggregates rainfall data using median consensus and checks against predefined drought thresholds (< 10mm rainfall).
+  </Step>
+  
+  <Step title="Instant Payout">
+    When drought conditions are met, the CRE automatically executes on-chain payout transactions, transferring 10x the premium directly to farmers.
+  </Step>
+</Steps>
+
+## Why Parametric Insurance?
+
+Traditional crop insurance requires:
+- Manual damage assessments
+- Lengthy claims processing
+- Subjective evaluations
+- High administrative costs
+
+**Parametric insurance** uses predetermined triggers (like rainfall measurements) to automatically execute payouts, making the process:
+
+<CardGroup cols={2}>
+  <Card title="Faster" icon="rocket">
+    Payouts execute in seconds, not weeks
+  </Card>
+  <Card title="Cheaper" icon="dollar-sign">
+    No expensive loss adjusters or claim processors
+  </Card>
+  <Card title="Transparent" icon="eye">
+    Trigger conditions are publicly verifiable
+  </Card>
+  <Card title="Fair" icon="balance-scale">
+    No subjective decisions or disputes
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+AridGuard is built with cutting-edge blockchain and oracle technologies:
+
+- **Chainlink CRE**: Serverless off-chain compute for weather monitoring and payout execution
+- **Base Sepolia**: Layer-2 blockchain for fast, low-cost policy and payout transactions
+- **OpenWeather API**: Real-world rainfall data source with global coverage
+- **Coinbase OnchainKit**: Seamless smart wallet integration for users
+- **Next.js & Wagmi**: Modern web3 frontend experience
+
+<Note>
+  AridGuard is currently deployed on Base Sepolia testnet for demonstration purposes. All transactions use testnet ETH.
+</Note>
+
+## Key Features
+
+### Deterministic Execution
+
+Every payout is triggered by verifiable, objective data. No human intervention means no delays, no bias, and no disputes.
+
+### Consensus Aggregation
+
+The CRE workflow uses median aggregation across multiple data sources to ensure accuracy and prevent manipulation.
+
+### Security First
+
+The smart contract uses the `onlyCRE` modifier to ensure only authorized Chainlink CRE addresses can execute payouts, preventing unauthorized access.
+
+```solidity
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+## Get Started
+
+Ready to explore AridGuard? Follow our quickstart guide to:
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="play"
+    href="/quickstart"
+  >
+    Connect your wallet and purchase your first policy
+  </Card>
+  <Card
+    title="Architecture Overview"
+    icon="diagram-project"
+    href="/architecture/overview"
+  >
+    Understand the technical architecture and data flow
+  </Card>
+  <Card
+    title="Smart Contracts"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Explore the on-chain settlement layer
+  </Card>
+  <Card
+    title="CRE Workflow"
+    icon="arrows-spin"
+    href="/architecture/cre-workflow"
+  >
+    Learn how off-chain monitoring works
+  </Card>
+</CardGroup>
+
+<Warning>
+  AridGuard is a hackathon project demonstrating parametric insurance concepts. It is not audited and should not be used in production with real funds.
+</Warning>

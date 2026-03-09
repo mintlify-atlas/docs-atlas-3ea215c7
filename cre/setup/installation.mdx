@@ -1,0 +1,337 @@
+---
+title: "Installation"
+description: "Set up your development environment for building and testing AridGuard CRE workflows"
+---
+
+## Prerequisites
+
+Before installing the CRE development environment, ensure you have:
+
+<CardGroup cols={2}>
+  <Card title="Node.js" icon="node-js">
+    Version 18.x or higher
+  </Card>
+  <Card title="TypeScript" icon="code">
+    Familiarity with TypeScript syntax
+  </Card>
+  <Card title="Package Manager" icon="box">
+    npm, yarn, or pnpm
+  </Card>
+  <Card title="Code Editor" icon="file-code">
+    VS Code or similar IDE
+  </Card>
+</CardGroup>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Node.js">
+    Download and install Node.js 18.x or higher from [nodejs.org](https://nodejs.org/).
+    
+    Verify installation:
+    ```bash
+    node --version
+    npm --version
+    ```
+  </Step>
+  
+  <Step title="Create Project Directory">
+    Set up a new directory for your CRE workflow:
+    ```bash
+    mkdir aridguard-cre
+    cd aridguard-cre
+    ```
+  </Step>
+  
+  <Step title="Initialize Package">
+    Create a new Node.js project:
+    ```bash
+    npm init -y
+    ```
+    
+    This creates a `package.json` file in your project.
+  </Step>
+  
+  <Step title="Install CRE SDK">
+    Install the Chainlink Runtime Environment SDK:
+    ```bash
+    npm install @chainlink/cre-sdk
+    ```
+    
+    This package provides all CRE capabilities and runtime utilities.
+  </Step>
+  
+  <Step title="Install Dependencies">
+    Install additional required packages:
+    ```bash
+    npm install viem zod
+    ```
+    
+    - **viem**: Ethereum library for ABI encoding/decoding
+    - **zod**: Schema validation for configuration
+  </Step>
+  
+  <Step title="Install TypeScript">
+    Install TypeScript and type definitions:
+    ```bash
+    npm install --save-dev typescript @types/node
+    ```
+  </Step>
+  
+  <Step title="Configure TypeScript">
+    Create a `tsconfig.json` file:
+    ```json
+    {
+      "compilerOptions": {
+        "target": "ES2022",
+        "module": "commonjs",
+        "lib": ["ES2022"],
+        "outDir": "./dist",
+        "rootDir": "./",
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "resolveJsonModule": true,
+        "moduleResolution": "node"
+      },
+      "include": ["*.ts"],
+      "exclude": ["node_modules", "dist"]
+    }
+    ```
+  </Step>
+</Steps>
+
+## Project Structure
+
+Organize your CRE project with the following structure:
+
+```
+aridguard-cre/
+├── main.ts              # Workflow implementation
+├── config.json          # Configuration parameters
+├── secrets.yaml         # API keys and secrets
+├── workflow.yaml        # Workflow metadata
+├── package.json         # Node.js dependencies
+├── tsconfig.json        # TypeScript configuration
+└── node_modules/        # Installed packages
+```
+
+## Create Workflow Files
+
+<Tabs>
+  <Tab title="main.ts">
+    Create `main.ts` with the workflow implementation:
+    ```typescript
+    import { cre, consensusMedianAggregation, type HTTPSendRequester, type Runtime, ok, json, Runner } from "@chainlink/cre-sdk";
+    import { z } from "zod";
+
+    const configSchema = z.object({
+      schedule: z.string(),
+      weatherApiUrl: z.string(),
+      thresholdRainfall: z.number(),
+    });
+
+    type Config = z.infer<typeof configSchema>;
+
+    const onCronTrigger = (runtime: Runtime<Config>) => {
+      runtime.log("Workflow triggered!");
+      return "Success";
+    };
+
+    const initWorkflow = (config: Config) => {
+      const cron = new cre.capabilities.CronCapability();
+      return [cre.handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)];
+    };
+
+    export async function main() {
+      const runner = await Runner.newRunner<Config>({ configSchema });
+      await runner.run(initWorkflow);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="config.json">
+    Create `config.json` with configuration:
+    ```json
+    {
+      "schedule": "* * * * *",
+      "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+      "thresholdRainfall": 10
+    }
+    ```
+  </Tab>
+  
+  <Tab title="secrets.yaml">
+    Create `secrets.yaml` for API keys:
+    ```yaml
+    secretsNames:
+      OPENWEATHER_API_KEY:
+        - CRE_OPENWEATHER_API_KEY
+    ```
+  </Tab>
+  
+  <Tab title="workflow.yaml">
+    Create `workflow.yaml` for metadata:
+    ```yaml
+    local-simulation:
+      user-workflow:
+        workflow-name: "aridguard-local"
+      workflow-artifacts:
+        workflow-path: "./main.ts"
+        config-path: "./config.json"
+        secrets-path: "./secrets.yaml"
+    ```
+  </Tab>
+</Tabs>
+
+## Environment Variables
+
+Set up your API key as an environment variable:
+
+<Tabs>
+  <Tab title="Linux/macOS">
+    ```bash
+    export CRE_OPENWEATHER_API_KEY="your_api_key_here"
+    ```
+    
+    Add to `~/.bashrc` or `~/.zshrc` for persistence.
+  </Tab>
+  
+  <Tab title="Windows (PowerShell)">
+    ```powershell
+    $env:CRE_OPENWEATHER_API_KEY="your_api_key_here"
+    ```
+    
+    Use System Properties > Environment Variables for persistence.
+  </Tab>
+  
+  <Tab title=".env File">
+    Create a `.env` file (not recommended for production):
+    ```
+    CRE_OPENWEATHER_API_KEY=your_api_key_here
+    ```
+    
+    <Warning>
+      Never commit `.env` files to version control.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Verify Installation
+
+Check that all dependencies are installed correctly:
+
+```bash
+npm list @chainlink/cre-sdk viem zod
+```
+
+Expected output:
+```
+aridguard-cre@1.0.0
+├── @chainlink/cre-sdk@x.x.x
+├── viem@x.x.x
+└── zod@x.x.x
+```
+
+## Package Scripts
+
+Add useful scripts to `package.json`:
+
+```json
+{
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "simulate": "chainlink cre local simulate",
+    "lint": "tsc --noEmit"
+  }
+}
+```
+
+## IDE Setup
+
+### VS Code Extensions
+
+Install recommended extensions:
+
+- **ESLint**: Code linting
+- **Prettier**: Code formatting
+- **TypeScript Error Translator**: Better error messages
+- **YAML**: YAML file support
+
+### VS Code Settings
+
+Create `.vscode/settings.json`:
+
+```json
+{
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": true
+  },
+  "typescript.tsdk": "node_modules/typescript/lib"
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Module not found errors">
+    Ensure all dependencies are installed:
+    ```bash
+    npm install
+    ```
+    
+    Clear npm cache if issues persist:
+    ```bash
+    npm cache clean --force
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+  
+  <Accordion title="TypeScript compilation errors">
+    Verify `tsconfig.json` is configured correctly and run:
+    ```bash
+    npx tsc --noEmit
+    ```
+    
+    This checks for type errors without generating output files.
+  </Accordion>
+  
+  <Accordion title="CRE SDK import errors">
+    Ensure you're using the correct import syntax:
+    ```typescript
+    import { cre, Runner } from "@chainlink/cre-sdk";
+    ```
+    
+    Check that `@chainlink/cre-sdk` is installed in `node_modules`.
+  </Accordion>
+  
+  <Accordion title="Secret not found errors">
+    Verify environment variable is set:
+    ```bash
+    echo $CRE_OPENWEATHER_API_KEY
+    ```
+    
+    Ensure the variable name matches between `secrets.yaml` and your environment.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Simulation" icon="flask" href="/cre/setup/local-simulation">
+    Test your workflow in a local environment
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cre/configuration">
+    Configure workflow parameters
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/cre/setup/deployment">
+    Deploy to Chainlink oracle network
+  </Card>
+  <Card title="Weather API" icon="cloud" href="/cre/integration/weather-api">
+    Integrate weather data sources
+  </Card>
+</CardGroup>

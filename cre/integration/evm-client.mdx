@@ -1,0 +1,601 @@
+---
+title: "EVM Client Integration"
+description: "Interact with smart contracts on EVM-compatible blockchains using AridGuard's CRE workflow"
+---
+
+## Overview
+
+The EVMClient capability enables CRE workflows to read blockchain state and execute transactions on EVM-compatible networks. AridGuard uses EVMClient to read active insurance policies and trigger payouts when drought conditions are detected.
+
+## EVMClient Setup
+
+### Initialize Client
+
+```typescript
+import { cre, getNetwork, LAST_FINALIZED_BLOCK_NUMBER } from "@chainlink/cre-sdk";
+import { type Address } from "viem";
+
+const chainName = runtime.config.evm?.chainSelectorName || "base-sepolia";
+const contractAddress = (runtime.config.evm?.contractAddress || "0x23d747751abF06b68539f0684abe21E2A76901fc") as Address;
+
+const network = getNetwork({
+  chainFamily: "evm",
+  chainSelectorName: chainName,
+  isTestnet: true,
+});
+
+if (!network) throw new Error(`Network ${chainName} not found`);
+
+const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector);
+```
+
+### Network Configuration
+
+<ParamField path="chainFamily" type="string" default="evm">
+  Blockchain family. Currently supports `"evm"`.
+</ParamField>
+
+<ParamField path="chainSelectorName" type="string" required>
+  Chainlink-specific network identifier:
+  - `"ethereum-testnet-sepolia-base-1"` (Base Sepolia)
+  - `"base-mainnet"` (Base Mainnet)
+  - `"ethereum-testnet-sepolia"` (Ethereum Sepolia)
+</ParamField>
+
+<ParamField path="isTestnet" type="boolean" default="false">
+  Whether the network is a testnet or mainnet.
+</ParamField>
+
+## Reading Contract State
+
+AridGuard reads active policy IDs from the insurance contract:
+
+### Define ABI
+
+```typescript
+const readAbi = [
+  { 
+    type: "function", 
+    name: "activePolicyIds", 
+    inputs: [{ type: "uint256", name: "" }], 
+    outputs: [{ type: "bytes32", name: "" }], 
+    stateMutability: "view" 
+  }
+] as const;
+```
+
+### Encode Function Call
+
+```typescript
+import { encodeFunctionData } from "viem";
+
+const readData = encodeFunctionData({
+  abi: readAbi,
+  functionName: "activePolicyIds",
+  args: [0n]
+});
+```
+
+### Execute Read Call
+
+```typescript
+import { encodeCallMsg, zeroAddress, bytesToHex } from "@chainlink/cre-sdk";
+
+runtime.log(`Reading active policies from contract at ${contractAddress}...`);
+
+const contractCall = evmClient.callContract(runtime, {
+  call: encodeCallMsg({
+    from: zeroAddress,
+    to: contractAddress,
+    data: readData,
+  }),
+  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+}).result();
+```
+
+### Decode Response
+
+```typescript
+import { decodeFunctionResult } from "viem";
+
+const policyId = decodeFunctionResult({
+  abi: readAbi,
+  functionName: "activePolicyIds",
+  data: bytesToHex(contractCall.data),
+});
+
+runtime.log(`Found active policy ID: ${policyId}`);
+```
+
+## Writing to Contracts
+
+When drought is detected, execute payout transaction:
+
+### Define Write ABI
+
+```typescript
+const writeAbi = [
+  { 
+    type: "function", 
+    name: "executePayout", 
+    inputs: [{ type: "bytes32", name: "policyId" }], 
+    outputs: [], 
+    stateMutability: "nonpayable" 
+  }
+] as const;
+```
+
+### Encode Transaction Data
+
+```typescript
+const writeData = encodeFunctionData({
+  abi: writeAbi,
+  functionName: "executePayout",
+  args: [policyId as `0x${string}`],
+});
+```
+
+### Submit Transaction Report
+
+```typescript
+import { prepareReportRequest } from "@chainlink/cre-sdk";
+
+runtime.log(`Executing payout transaction on Base...`);
+runtime.report(prepareReportRequest(writeData)).result();
+
+return `Payout Executed for rainfall: ${medianRainfall}. Policy ID: ${policyId}`;
+```
+
+## Complete EVM Integration
+
+Here's the full EVM interaction code from AridGuard:
+
+```typescript
+if (medianRainfall < runtime.config.thresholdRainfall) {
+  runtime.log(`ALERT: Drought condition detected! Rainfall ${medianRainfall} is below threshold ${runtime.config.thresholdRainfall}.`);
+  
+  const chainName = runtime.config.evm?.chainSelectorName || "base-sepolia";
+  const contractAddress = (runtime.config.evm?.contractAddress || "0x23d747751abF06b68539f0684abe21E2A76901fc") as Address;
+  
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: chainName,
+    isTestnet: true,
+  });
+  
+  if (!network) throw new Error(`Network ${chainName} not found`);
+
+  const evmClient = new cre.capabilities.EVMClient(network.chainSelector.selector);
+
+  // 1. Read first active policy ID
+  const readAbi = [{ type: "function", name: "activePolicyIds", inputs: [{ type: "uint256", name: "" }], outputs: [{ type: "bytes32", name: "" }], stateMutability: "view" }] as const;
+  const readData = encodeFunctionData({
+    abi: readAbi,
+    functionName: "activePolicyIds",
+    args: [0n]
+  });
+
+  runtime.log(`Reading active policies from contract at ${contractAddress}...`);
+  const contractCall = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: zeroAddress,
+      to: contractAddress,
+      data: readData,
+    }),
+    blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+  }).result();
+
+  const policyId = decodeFunctionResult({
+    abi: readAbi,
+    functionName: "activePolicyIds",
+    data: bytesToHex(contractCall.data),
+  });
+
+  runtime.log(`Found active policy ID: ${policyId}. Executing payout transaction on Base...`);
+  
+  // 2. Write (Execute Payout)
+  const writeAbi = [{ type: "function", name: "executePayout", inputs: [{ type: "bytes32", name: "policyId" }], outputs: [], stateMutability: "nonpayable" }] as const;
+  const writeData = encodeFunctionData({
+    abi: writeAbi,
+    functionName: "executePayout",
+    args: [policyId as `0x${string}`],
+  });
+  
+  runtime.report(prepareReportRequest(writeData)).result();
+  
+  return `Payout Executed for rainfall: ${medianRainfall}. Policy ID: ${policyId}`;
+}
+```
+
+## Block Number Selection
+
+### LAST_FINALIZED_BLOCK_NUMBER
+
+AridGuard uses finalized blocks for consistent reads:
+
+```typescript
+const contractCall = evmClient.callContract(runtime, {
+  call: encodeCallMsg({ ... }),
+  blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+}).result();
+```
+
+<Info>
+  **Why finalized blocks?**
+  - Prevents reading from blocks that may be reorganized
+  - Ensures all oracle nodes read the same state
+  - Provides deterministic results for consensus
+</Info>
+
+### Block Finality by Network
+
+<Tabs>
+  <Tab title="Ethereum">
+    **Finality**: ~12-15 minutes (2 epochs)
+    
+    Safe for high-value operations.
+  </Tab>
+  
+  <Tab title="Base / Optimism">
+    **Finality**: ~1-2 minutes
+    
+    L2 blocks are finalized when posted to L1.
+  </Tab>
+  
+  <Tab title="Polygon">
+    **Finality**: ~30-60 minutes
+    
+    Longer finality time due to checkpoint mechanism.
+  </Tab>
+</Tabs>
+
+### Specific Block Numbers
+
+Read from a specific block:
+
+```typescript
+const contractCall = evmClient.callContract(runtime, {
+  call: encodeCallMsg({ ... }),
+  blockNumber: 12345678n, // Specific block
+}).result();
+```
+
+## ABI Management
+
+### Inline ABI Definitions
+
+For simple contracts, define ABIs inline:
+
+```typescript
+const abi = [
+  { 
+    type: "function", 
+    name: "activePolicyIds", 
+    inputs: [{ type: "uint256" }], 
+    outputs: [{ type: "bytes32" }], 
+    stateMutability: "view" 
+  }
+] as const;
+```
+
+### Import Full ABIs
+
+For complex contracts, import full ABI:
+
+```typescript
+import InsuranceABI from "./abis/Insurance.json";
+
+const readData = encodeFunctionData({
+  abi: InsuranceABI,
+  functionName: "activePolicyIds",
+  args: [0n]
+});
+```
+
+### Minimal ABI
+
+Include only functions you need:
+
+```typescript
+const minimalAbi = [
+  // Read function
+  { 
+    type: "function", 
+    name: "activePolicyIds", 
+    inputs: [{ type: "uint256" }], 
+    outputs: [{ type: "bytes32" }], 
+    stateMutability: "view" 
+  },
+  // Write function
+  { 
+    type: "function", 
+    name: "executePayout", 
+    inputs: [{ type: "bytes32" }], 
+    outputs: [], 
+    stateMutability: "nonpayable" 
+  }
+] as const;
+```
+
+## Error Handling
+
+### Contract Call Failures
+
+```typescript
+try {
+  const contractCall = evmClient.callContract(runtime, {
+    call: encodeCallMsg({
+      from: zeroAddress,
+      to: contractAddress,
+      data: readData,
+    }),
+    blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+  }).result();
+  
+  const policyId = decodeFunctionResult({
+    abi: readAbi,
+    functionName: "activePolicyIds",
+    data: bytesToHex(contractCall.data),
+  });
+  
+} catch (error) {
+  runtime.log(`Contract call failed: ${error.message}`);
+  
+  // Handle specific errors
+  if (error.message.includes("out of bounds")) {
+    runtime.log("No active policies found");
+    return "No active policies to process";
+  }
+  
+  throw error;
+}
+```
+
+### Network Failures
+
+```typescript
+const network = getNetwork({
+  chainFamily: "evm",
+  chainSelectorName: chainName,
+  isTestnet: true,
+});
+
+if (!network) {
+  throw new Error(`Network ${chainName} not found. Check chainSelectorName in config.`);
+}
+```
+
+### Invalid Contract Address
+
+```typescript
+if (!contractAddress || contractAddress === zeroAddress) {
+  throw new Error("Invalid contract address in configuration");
+}
+```
+
+## Advanced Patterns
+
+### Batch Contract Reads
+
+Read multiple values in one call using Multicall:
+
+```typescript
+import { multicall } from "viem";
+
+const results = await multicall({
+  contracts: [
+    {
+      address: contractAddress,
+      abi: readAbi,
+      functionName: "activePolicyIds",
+      args: [0n]
+    },
+    {
+      address: contractAddress,
+      abi: readAbi,
+      functionName: "activePolicyIds",
+      args: [1n]
+    },
+  ],
+});
+```
+
+### Conditional Transaction Execution
+
+```typescript
+if (medianRainfall < runtime.config.thresholdRainfall) {
+  // Read policy details first
+  const policyId = /* ... read policy ID ... */;
+  
+  // Check if policy is still active
+  const isActive = /* ... check policy status ... */;
+  
+  if (isActive) {
+    // Only execute payout if policy is active
+    runtime.report(prepareReportRequest(writeData)).result();
+  } else {
+    runtime.log(`Policy ${policyId} is no longer active, skipping payout`);
+  }
+}
+```
+
+### Event Monitoring
+
+Listen for contract events (future feature):
+
+```typescript
+// Future CRE capability
+const events = evmClient.getLogs(runtime, {
+  address: contractAddress,
+  fromBlock: lastProcessedBlock,
+  toBlock: LAST_FINALIZED_BLOCK_NUMBER,
+  topics: [
+    // Event signature for PolicyActivated
+    "0x1234..."
+  ]
+});
+```
+
+## Transaction Reporting
+
+### Prepare Report
+
+```typescript
+import { prepareReportRequest } from "@chainlink/cre-sdk";
+
+const writeData = encodeFunctionData({
+  abi: writeAbi,
+  functionName: "executePayout",
+  args: [policyId as `0x${string}`],
+});
+
+const report = prepareReportRequest(writeData);
+```
+
+### Submit Report
+
+```typescript
+runtime.report(report).result();
+```
+
+<Info>
+  The `report` method submits transaction data to the oracle network for consensus. Multiple nodes must agree before the transaction is executed on-chain.
+</Info>
+
+### Transaction Consensus
+
+1. **Data Consensus**: Nodes agree on rainfall measurement
+2. **Threshold Check**: Nodes agree rainfall < threshold
+3. **Transaction Consensus**: Nodes agree to submit payout transaction
+4. **On-Chain Execution**: Multi-signature wallet or threshold signature executes transaction
+
+## Gas and Fee Management
+
+### Gas Estimation
+
+CRE handles gas estimation automatically, but you can optimize:
+
+```typescript
+// Keep transaction data minimal
+const writeData = encodeFunctionData({
+  abi: writeAbi,
+  functionName: "executePayout",
+  args: [policyId], // Only essential arguments
+});
+```
+
+### Transaction Priority
+
+CRE uses appropriate gas prices for network conditions. For urgent transactions, configure priority:
+
+```typescript
+// Future CRE feature
+const report = prepareReportRequest(writeData, {
+  priority: "high" // Pays higher gas for faster inclusion
+});
+```
+
+## Testing EVM Integration
+
+### Local Blockchain
+
+Test against local blockchain:
+
+<Tabs>
+  <Tab title="Hardhat">
+    ```bash
+    npx hardhat node
+    ```
+    
+    Update config:
+    ```json
+    {
+      "evm": {
+        "chainSelectorName": "localhost",
+        "contractAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Anvil">
+    ```bash
+    anvil
+    ```
+    
+    Fast local Ethereum node from Foundry.
+  </Tab>
+</Tabs>
+
+### Mock Contract Interactions
+
+For isolated testing:
+
+```typescript
+if (process.env.NODE_ENV === 'test') {
+  // Mock reading policy ID
+  const mockPolicyId = "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef";
+  runtime.log(`Mock policy ID: ${mockPolicyId}`);
+  
+  // Skip actual transaction
+  runtime.log("Mock transaction executed");
+  return `Payout Executed (mock) for policy: ${mockPolicyId}`;
+}
+
+// Production code
+const evmClient = new cre.capabilities.EVMClient(...);
+// ... actual EVM calls
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Finalized Blocks" icon="cube">
+    Always read from `LAST_FINALIZED_BLOCK_NUMBER` to ensure consistent oracle consensus.
+  </Card>
+  
+  <Card title="Minimal ABIs" icon="file-code">
+    Include only the functions you need to reduce code size and improve clarity.
+  </Card>
+  
+  <Card title="Error Handling" icon="triangle-exclamation">
+    Wrap all contract calls in try-catch and handle specific error cases.
+  </Card>
+  
+  <Card title="Gas Optimization" icon="gas-pump">
+    Minimize transaction data and batch operations when possible.
+  </Card>
+</CardGroup>
+
+## Supported Networks
+
+CRE EVMClient supports major EVM chains:
+
+- Ethereum (Mainnet, Sepolia, Goerli)
+- Base (Mainnet, Sepolia)
+- Arbitrum (Mainnet, Sepolia)
+- Optimism (Mainnet, Sepolia)
+- Polygon (Mainnet, Mumbai)
+- Avalanche (C-Chain, Fuji)
+- BNB Chain (Mainnet, Testnet)
+
+<Info>
+  Check Chainlink documentation for the complete list of supported networks and their chain selector names.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Smart Contracts" icon="file-contract" href="/contracts/aridguard">
+    Learn about the insurance smart contract implementation
+  </Card>
+  <Card title="Consensus" icon="users" href="/cre/integration/consensus">
+    Understand transaction consensus mechanisms
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/cre/setup/deployment">
+    Deploy your workflow to the oracle network
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cre/configuration">
+    Configure EVM network settings
+  </Card>
+</CardGroup>

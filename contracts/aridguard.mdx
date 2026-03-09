@@ -1,0 +1,160 @@
+---
+title: AridGuard Contract
+description: Core smart contract for parametric drought insurance
+---
+
+The AridGuard smart contract is the foundation of the parametric drought insurance system. It manages policy purchases, stores policy data on-chain, and executes automated payouts when triggered by the Climate Risk Engine (CRE).
+
+## Contract Overview
+
+The AridGuard contract is deployed on Base Sepolia and implements a trust-minimized insurance protocol where:
+
+- Farmers purchase policies by paying premiums in ETH
+- Policy data (location, premium) is stored immutably on-chain
+- Only the authorized CRE address can trigger payouts
+- Payouts are 10x the premium paid
+
+## Architecture
+
+```solidity
+contract AridGuard is Ownable {
+    address public creAddress;
+    
+    struct Policy {
+        address farmer;
+        int256 lat;
+        int256 long;
+        uint256 premiumPaid;
+        bool isActive;
+    }
+    
+    mapping(bytes32 => Policy) public policies;
+    bytes32[] public activePolicyIds;
+}
+```
+
+### Key Components
+
+<ParamField path="creAddress" type="address">
+  The authorized Climate Risk Engine address that can execute payouts
+</ParamField>
+
+<ParamField path="policies" type="mapping(bytes32 => Policy)">
+  Mapping of policy IDs to Policy structs containing farmer details and coverage information
+</ParamField>
+
+<ParamField path="activePolicyIds" type="bytes32[]">
+  Array of all active policy IDs for enumeration
+</ParamField>
+
+## Policy Structure
+
+Each policy contains the following fields:
+
+<ResponseField name="farmer" type="address">
+  The wallet address of the farmer who purchased the policy
+</ResponseField>
+
+<ResponseField name="lat" type="int256">
+  Latitude coordinate of the insured location (scaled integer)
+</ResponseField>
+
+<ResponseField name="long" type="int256">
+  Longitude coordinate of the insured location (scaled integer)
+</ResponseField>
+
+<ResponseField name="premiumPaid" type="uint256">
+  The amount of ETH paid as premium (in wei)
+</ResponseField>
+
+<ResponseField name="isActive" type="bool">
+  Whether the policy is currently active and eligible for payout
+</ResponseField>
+
+## Events
+
+The contract emits two primary events:
+
+### PolicyPurchased
+
+```solidity
+event PolicyPurchased(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    int256 lat,
+    int256 long,
+    uint256 premium
+);
+```
+
+Emitted when a farmer purchases a new insurance policy.
+
+<ResponseField name="policyId" type="bytes32" required>
+  Unique identifier for the policy
+</ResponseField>
+
+<ResponseField name="farmer" type="address" required>
+  Address of the farmer who purchased the policy
+</ResponseField>
+
+<ResponseField name="lat" type="int256" required>
+  Latitude of the insured location
+</ResponseField>
+
+<ResponseField name="long" type="int256" required>
+  Longitude of the insured location
+</ResponseField>
+
+<ResponseField name="premium" type="uint256" required>
+  Premium amount paid in wei
+</ResponseField>
+
+### PayoutExecuted
+
+```solidity
+event PayoutExecuted(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    uint256 payoutAmount
+);
+```
+
+Emitted when the CRE executes a payout for a policy.
+
+<ResponseField name="policyId" type="bytes32" required>
+  ID of the policy receiving the payout
+</ResponseField>
+
+<ResponseField name="farmer" type="address" required>
+  Address receiving the payout
+</ResponseField>
+
+<ResponseField name="payoutAmount" type="uint256" required>
+  Amount paid out in wei (10x premium)
+</ResponseField>
+
+## Constructor
+
+```solidity
+constructor(address _creAddress) Ownable(msg.sender)
+```
+
+<ParamField path="_creAddress" type="address" required>
+  Initial address authorized to execute payouts (Climate Risk Engine)
+</ParamField>
+
+The constructor sets the initial CRE address and establishes the deployer as the contract owner.
+
+## Funding the Contract
+
+The contract includes a `receive()` function to accept ETH deposits:
+
+```solidity
+receive() external payable {}
+```
+
+This allows the contract to be funded for payouts. The contract must maintain sufficient balance to cover potential 10x payouts.
+
+## Contract Address
+
+The AridGuard contract is deployed on Base Sepolia. Check the deployment documentation for the current contract address.

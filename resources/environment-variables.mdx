@@ -1,0 +1,309 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all environment variables in AridGuard'
+icon: 'key'
+---
+
+AridGuard uses environment variables to manage sensitive configuration like private keys and API credentials. This guide covers all environment variables across the smart contracts, CRE workflow, and frontend components.
+
+## Overview
+
+Environment variables are stored in `.env` files that are **never committed to version control**. Each component has its own `.env.example` template file.
+
+<Warning>
+  Never commit `.env` files or share private keys. Always use `.env.example` as templates and add `.env` to your `.gitignore`.
+</Warning>
+
+## Smart Contracts Environment Variables
+
+Location: `contracts/.env`
+
+### PRIVATE_KEY
+
+**Required:** Yes
+**Type:** String (hexadecimal)
+**Description:** The private key of the wallet used to deploy smart contracts to the blockchain.
+
+**Example:**
+```bash
+PRIVATE_KEY=0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+```
+
+**Usage:**
+- Deploying the AridGuard.sol contract to Base Sepolia
+- Executing contract owner functions like `setCREAddress()`
+- Signing transactions during deployment
+
+**Security considerations:**
+- This wallet needs Base Sepolia ETH for gas fees
+- Keep this key secure and never share it
+- Use a dedicated deployment wallet, not your main wallet
+- For production, consider using a hardware wallet or multi-sig
+
+**Setup:**
+```bash
+cd contracts
+cp .env.example .env
+# Edit .env and add your private key
+```
+
+## CRE Workflow Environment Variables
+
+Location: `cre/.env`
+
+The CRE workflow requires two environment variables for operation.
+
+### CRE_ETH_PRIVATE_KEY
+
+**Required:** Yes
+**Type:** String (hexadecimal)
+**Description:** The private key of the wallet that the CRE EVMClient uses to execute on-chain transactions, specifically calling the `executePayout()` function.
+
+**Example:**
+```bash
+CRE_ETH_PRIVATE_KEY=0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890
+```
+
+**Usage:**
+- Executing payout transactions when drought conditions are detected
+- Reading active policy IDs from the smart contract
+- Interacting with the blockchain through the EVMClient capability
+
+**Critical requirements:**
+<Warning>
+  The wallet address associated with `CRE_ETH_PRIVATE_KEY` **must** be set as the `creAddress` in the deployed AridGuard smart contract using the `setCREAddress()` function. Otherwise, payout transactions will fail with "Only CRE can execute this" error.
+</Warning>
+
+**How to set the CRE address:**
+```solidity
+// Call this function as contract owner
+aridGuard.setCREAddress("0xYourCREWalletAddress");
+```
+
+**Security considerations:**
+- This wallet needs Base Sepolia ETH for gas fees to execute payouts
+- Must be different from your deployment wallet for security isolation
+- Monitor this wallet's balance to ensure uninterrupted service
+- Set up alerts for low balance conditions
+
+### CRE_OPENWEATHER_API_KEY
+
+**Required:** Yes
+**Type:** String
+**Description:** A valid API key from OpenWeather used by the CRE HTTPClient capability to fetch real-time rainfall data.
+
+**Example:**
+```bash
+CRE_OPENWEATHER_API_KEY=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+```
+
+**Usage:**
+- Fetching weather data from OpenWeather API
+- The workflow appends this key to API requests automatically
+- Used in the `fetchAndParse` function in `cre/main.ts`
+
+**How to obtain:**
+1. Sign up at [openweathermap.org](https://openweathermap.org/)
+2. Navigate to API keys section in your account
+3. Generate a new API key (free tier available)
+4. Copy the key to your `.env` file
+
+**API limits:**
+- Free tier: 60 calls/minute, 1,000,000 calls/month
+- Ensure your cron schedule doesn't exceed rate limits
+- Monitor usage in your OpenWeather dashboard
+
+**Code implementation:**
+```typescript cre/main.ts
+const secretResponse = runtime.getSecret({ id: "OPENWEATHER_API_KEY" }).result();
+const apiKey = secretResponse.value;
+
+const url = config.weatherApiUrl.includes("?") 
+  ? `${config.weatherApiUrl}&appid=${apiKey}` 
+  : `${config.weatherApiUrl}?appid=${apiKey}`;
+```
+
+**Setup:**
+```bash
+cd cre
+cp .env.example .env
+# Edit .env and add both CRE_ETH_PRIVATE_KEY and CRE_OPENWEATHER_API_KEY
+```
+
+## CRE Secrets Configuration
+
+Location: `cre/secrets.yaml`
+
+The CRE workflow uses a secrets mapping file to bind environment variables to runtime secrets:
+
+```yaml cre/secrets.yaml
+secretsNames:
+  OPENWEATHER_API_KEY:
+    - CRE_OPENWEATHER_API_KEY
+```
+
+**How it works:**
+- The `CRE_OPENWEATHER_API_KEY` from `.env` is mapped to `OPENWEATHER_API_KEY` in the runtime
+- The workflow accesses it using `runtime.getSecret({ id: "OPENWEATHER_API_KEY" })`
+- This provides a secure way to inject secrets without hardcoding them
+
+<Info>
+  The secrets.yaml file is safe to commit to version control as it only contains mappings, not actual secret values.
+</Info>
+
+## Environment File Templates
+
+### contracts/.env.example
+
+```bash
+PRIVATE_KEY=
+```
+
+### cre/.env.example
+
+```bash
+CRE_ETH_PRIVATE_KEY=
+CRE_OPENWEATHER_API_KEY=
+```
+
+## Frontend Environment Variables
+
+While not explicitly defined in the source, typical frontend configurations might include:
+
+### NEXT_PUBLIC_CONTRACT_ADDRESS
+
+**Type:** String (Ethereum address)
+**Description:** The deployed AridGuard contract address for the frontend to interact with.
+
+### NEXT_PUBLIC_CHAIN_ID
+
+**Type:** Number
+**Description:** The chain ID of the network (e.g., `84532` for Base Sepolia).
+
+### NEXT_PUBLIC_RPC_URL
+
+**Type:** String (URL)
+**Description:** RPC endpoint for blockchain interactions.
+
+<Note>
+  Variables prefixed with `NEXT_PUBLIC_` are exposed to the browser. Never put private keys in these variables.
+</Note>
+
+## Environment Setup Workflow
+
+Follow this workflow to set up all environment variables:
+
+<Steps>
+  <Step title="Create environment files">
+    ```bash
+    # Smart contracts
+    cd contracts
+    cp .env.example .env
+
+    # CRE workflow
+    cd ../cre
+    cp .env.example .env
+    ```
+  </Step>
+
+  <Step title="Generate wallets">
+    Create two separate wallets:
+    1. **Deployment wallet** - for deploying contracts
+    2. **CRE wallet** - for executing payouts
+
+    Export their private keys for the environment variables.
+  </Step>
+
+  <Step title="Obtain API key">
+    Sign up at OpenWeather and generate an API key.
+  </Step>
+
+  <Step title="Configure contracts/.env">
+    ```bash
+    PRIVATE_KEY=0xYourDeploymentWalletPrivateKey
+    ```
+  </Step>
+
+  <Step title="Configure cre/.env">
+    ```bash
+    CRE_ETH_PRIVATE_KEY=0xYourCREWalletPrivateKey
+    CRE_OPENWEATHER_API_KEY=YourOpenWeatherAPIKey
+    ```
+  </Step>
+
+  <Step title="Verify configuration">
+    ```bash
+    # Check files exist and are not empty
+    cat contracts/.env
+    cat cre/.env
+
+    # Ensure .env is in .gitignore
+    cat .gitignore | grep .env
+    ```
+  </Step>
+</Steps>
+
+## Security Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Different Keys" icon="shield">
+    Never reuse the same private key for deployment and CRE operations. Isolate responsibilities.
+  </Card>
+
+  <Card title="Hardware Wallets" icon="usb-drive">
+    For production deployments, use hardware wallets or secure key management systems.
+  </Card>
+
+  <Card title="Monitor Balances" icon="chart-line">
+    Set up alerts for low wallet balances to prevent service interruptions.
+  </Card>
+
+  <Card title="Rotate Keys" icon="arrows-rotate">
+    Periodically rotate API keys and update the configuration.
+  </Card>
+</CardGroup>
+
+### Access Control
+
+- Limit access to `.env` files to authorized team members only
+- Use secret management services (AWS Secrets Manager, HashiCorp Vault) for production
+- Never log or print environment variables in application code
+- Use CI/CD secrets management for automated deployments
+
+### Validation
+
+Before running the application, validate your environment variables:
+
+```bash
+# Check private key format (should start with 0x and be 66 chars)
+echo $CRE_ETH_PRIVATE_KEY | grep -E '^0x[a-fA-F0-9]{64}$'
+
+# Test OpenWeather API key
+curl "https://api.openweathermap.org/data/2.5/weather?q=London&appid=$CRE_OPENWEATHER_API_KEY"
+```
+
+## Troubleshooting
+
+### "Only CRE can execute this" error
+
+**Cause:** The wallet address from `CRE_ETH_PRIVATE_KEY` is not set as the `creAddress` in the contract.
+
+**Solution:** Call `setCREAddress()` with the correct address as the contract owner.
+
+### "Invalid API key" error
+
+**Cause:** The `CRE_OPENWEATHER_API_KEY` is incorrect or has been revoked.
+
+**Solution:** Verify your API key in the OpenWeather dashboard and update the `.env` file.
+
+### "Insufficient funds" error
+
+**Cause:** The wallet has insufficient ETH for gas fees.
+
+**Solution:** Fund the wallet with Base Sepolia ETH from a faucet or bridge.
+
+## Related Resources
+
+- [Deployment Guide](/resources/deployment-guide) - Step-by-step deployment instructions
+- [Network Configuration](/resources/network-configuration) - Configure network settings
+- [Troubleshooting](/resources/troubleshooting) - Common issues and solutions

@@ -1,0 +1,178 @@
+---
+title: Contract Deployment
+description: Deploy and configure the AridGuard smart contract
+---
+
+The AridGuard contract is deployed using Hardhat Ignition on Base Sepolia testnet.
+
+## Prerequisites
+
+Before deploying, ensure you have:
+
+- Node.js and npm installed
+- A wallet with Base Sepolia ETH
+- Private key exported to environment variables
+
+## Environment Setup
+
+Create a `.env` file in the contracts directory:
+
+```bash
+PRIVATE_KEY=your_private_key_here
+```
+
+<Warning>
+  Never commit your `.env` file or expose your private key. Add `.env` to `.gitignore`.
+</Warning>
+
+## Network Configuration
+
+The Hardhat configuration targets Base Sepolia:
+
+```javascript
+const config = {
+  solidity: "0.8.28",
+  networks: {
+    baseSepolia: {
+      url: "https://sepolia.base.org",
+      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+    }
+  }
+};
+```
+
+### Network Details
+
+<ParamField path="solidity" type="string">
+  Solidity compiler version 0.8.28
+</ParamField>
+
+<ParamField path="networks.baseSepolia.url" type="string">
+  RPC endpoint for Base Sepolia testnet
+</ParamField>
+
+<ParamField path="networks.baseSepolia.accounts" type="string[]">
+  Array of private keys for deployment (loaded from environment)
+</ParamField>
+
+## Deployment Module
+
+The deployment uses Hardhat Ignition with the following module:
+
+```javascript
+import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
+
+export default buildModule("AridGuardModule", (m) => {
+  // For this hackathon demo, we will set the deployer's wallet address
+  // as the initial "CRE Address"
+  const deployer = m.getAccount(0);
+
+  const aridGuard = m.contract("AridGuard", [deployer]);
+
+  return { aridGuard };
+});
+```
+
+### Module Parameters
+
+<ParamField path="deployer" type="address">
+  The first account from the Hardhat accounts array, used as the initial CRE address
+</ParamField>
+
+<ParamField path="aridGuard" type="Contract">
+  The deployed AridGuard contract instance
+</ParamField>
+
+## Deploy the Contract
+
+Install dependencies:
+
+```bash
+cd contracts
+npm install
+```
+
+Deploy to Base Sepolia:
+
+```bash
+npx hardhat ignition deploy ./ignition/modules/AridGuard.js --network baseSepolia
+```
+
+### Deployment Output
+
+After successful deployment, you'll receive:
+
+- Contract address on Base Sepolia
+- Transaction hash
+- Deployment artifacts in `ignition/deployments/`
+
+<Note>
+  Save the contract address - you'll need it to configure the frontend and CRE service.
+</Note>
+
+## Post-Deployment Configuration
+
+### 1. Fund the Contract
+
+The contract needs ETH to execute payouts:
+
+```bash
+# Send ETH to the contract address
+cast send <CONTRACT_ADDRESS> --value 1ether --private-key $PRIVATE_KEY --rpc-url https://sepolia.base.org
+```
+
+### 2. Update CRE Address
+
+If you need to change the CRE address after deployment:
+
+```bash
+cast send <CONTRACT_ADDRESS> "setCREAddress(address)" <NEW_CRE_ADDRESS> --private-key $PRIVATE_KEY --rpc-url https://sepolia.base.org
+```
+
+<Warning>
+  Only the contract owner can call `setCREAddress()`. This is a privileged operation.
+</Warning>
+
+### 3. Verify the Contract
+
+Verify on BaseScan for transparency:
+
+```bash
+npx hardhat verify --network baseSepolia <CONTRACT_ADDRESS> <CRE_ADDRESS>
+```
+
+## Environment Integration
+
+Update your application's environment variables:
+
+```bash
+# Frontend .env
+NEXT_PUBLIC_CONTRACT_ADDRESS=<deployed_contract_address>
+NEXT_PUBLIC_CHAIN_ID=84532
+
+# CRE Service .env
+CONTRACT_ADDRESS=<deployed_contract_address>
+CRE_PRIVATE_KEY=<cre_wallet_private_key>
+```
+
+## Troubleshooting
+
+### Insufficient Funds
+
+If deployment fails due to insufficient funds, get Base Sepolia ETH from:
+- [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet)
+- [Alchemy Faucet](https://www.alchemy.com/faucets/base-sepolia)
+
+### Network Connection Issues
+
+If you encounter RPC issues, try alternative Base Sepolia endpoints:
+- `https://sepolia.base.org`
+- `https://base-sepolia.blockpi.network/v1/rpc/public`
+
+### Contract Verification Fails
+
+Ensure you're using the exact constructor parameters from deployment:
+
+```bash
+npx hardhat verify --network baseSepolia <CONTRACT_ADDRESS> "<CONSTRUCTOR_PARAM>"
+```

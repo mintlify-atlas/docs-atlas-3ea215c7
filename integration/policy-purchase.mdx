@@ -1,0 +1,700 @@
+---
+title: Policy Purchase
+description: Interact with AridGuard smart contract to purchase insurance policies
+---
+
+## Overview
+
+Purchasing a policy involves calling the `purchasePolicy` function on the AridGuard smart contract. This creates an on-chain insurance policy that the CRE workflow will monitor for drought conditions.
+
+<Steps>
+  <Step title="Connect Wallet">
+    User connects their wallet via OnchainKit
+  </Step>
+  <Step title="Configure Parameters">
+    Set latitude, longitude, and premium amount
+  </Step>
+  <Step title="Submit Transaction">
+    Call `purchasePolicy` with coordinate parameters and ETH value
+  </Step>
+  <Step title="Wait for Confirmation">
+    Transaction confirms on Base Sepolia (~2-5 seconds)
+  </Step>
+  <Step title="Policy Active">
+    Policy is recorded on-chain and monitoring begins
+  </Step>
+</Steps>
+
+## Smart Contract Function
+
+The `purchasePolicy` function accepts GPS coordinates and a premium payment:
+
+```solidity
+function purchasePolicy(int256 lat, int256 long) external payable {
+    require(msg.value > 0, "Premium must be greater than 0");
+    
+    bytes32 policyId = keccak256(
+        abi.encodePacked(msg.sender, lat, long, block.timestamp)
+    );
+    
+    policies[policyId] = Policy({
+        farmer: msg.sender,
+        lat: lat,
+        long: long,
+        premiumPaid: msg.value,
+        isActive: true
+    });
+    
+    activePolicyIds.push(policyId);
+    
+    emit PolicyPurchased(policyId, msg.sender, lat, long, msg.value);
+}
+```
+
+### Parameters
+
+- **`lat`** (int256): Latitude scaled by 100 (e.g., 0.05° = 5000)
+- **`long`** (int256): Longitude scaled by 100 (e.g., 36.0° = 360000)
+- **`msg.value`**: ETH premium amount (payable)
+
+<Note>
+  Coordinates are scaled by 100 to avoid floating-point numbers in Solidity. Latitude 0.05° is stored as 5000, and longitude 36.0° is stored as 360000.
+</Note>
+
+### Return Value
+
+The function doesn't return a value but emits a `PolicyPurchased` event:
+
+```solidity
+event PolicyPurchased(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    int256 lat,
+    int256 long,
+    uint256 premium
+);
+```
+
+## Contract Configuration
+
+First, set up your contract constants:
+
+```typescript
+// utils/constants.ts
+import AridGuardArtifact from "./AridGuard.json";
+
+export const ARIDGUARD_ADDRESS = "0x23d747751abF06b68539f0684abe21E2A76901fc";
+export const ARIDGUARD_ABI = AridGuardArtifact.abi;
+```
+
+The ABI JSON is exported from your Hardhat compilation:
+
+```bash
+cd contracts
+npx hardhat compile
+# Copy artifacts/contracts/AridGuard.sol/AridGuard.json to frontend/src/utils/
+```
+
+## Basic Purchase Implementation
+
+Use Wagmi's `useWriteContract` hook:
+
+```typescript
+"use client";
+
+import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseEther } from "viem";
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from "../utils/constants";
+
+export function PolicyPurchase() {
+  const { data: hash, isPending, writeContract } = useWriteContract();
+  
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [
+        5000,    // Latitude: 0.05°
+        360000   // Longitude: 36.0°
+      ],
+      value: parseEther("0.0001") // 0.0001 ETH premium
+    });
+  };
+
+  return (
+    <div>
+      <button 
+        onClick={handlePurchase}
+        disabled={isPending || isConfirming}
+      >
+        {isPending ? "Confirm in Wallet..." : 
+         isConfirming ? "Confirming..." : 
+         "Purchase Policy"}
+      </button>
+      
+      {isSuccess && (
+        <div className="success-message">
+          Policy purchased successfully!
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## Complete AridGuard Implementation
+
+Here's the full implementation from the AridGuard frontend:
+
+```typescript
+"use client";
+
+import { useState, useEffect } from "react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseEther } from "viem";
+import { ArrowRight, ShieldCheck, ExternalLink } from "lucide-react";
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from "../utils/constants";
+
+export default function PolicyPurchaseCard() {
+  const { isConnected } = useAccount();
+  const [purchased, setPurchased] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Contract interaction hooks
+  const { data: hash, isPending: isWritePending, writeContract } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  // Purchase handler
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [5000, 360000], // Kenya, Rift Valley
+      value: parseEther("0.0001"),
+    });
+  };
+
+  // Update UI when transaction confirms
+  useEffect(() => {
+    if (isConfirmed) {
+      setPurchased(true);
+    }
+  }, [isConfirmed]);
+
+  const loading = isWritePending || isConfirming;
+
+  // Loading state during SSR
+  if (!mounted) {
+    return (
+      <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-center animate-pulse">
+        <div className="h-12 bg-amber-200/50 rounded-xl w-full"></div>
+      </div>
+    );
+  }
+
+  // Not connected state
+  if (!isConnected) {
+    return (
+      <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-center">
+        <p className="text-amber-900/80 text-sm mb-4">
+          Connect your wallet to purchase a policy
+        </p>
+      </div>
+    );
+  }
+
+  // Policy already purchased
+  if (purchased) {
+    return (
+      <div className="bg-green-50 text-green-800 p-6 rounded-2xl border border-green-200 flex flex-col items-center justify-center text-center gap-3">
+        <ShieldCheck size={32} className="text-green-600" />
+        <div>
+          <h4 className="font-bold">Policy Active</h4>
+          <p className="text-sm text-green-700/80 mt-1">
+            CRE workflow is monitoring rainfall for your coordinates.
+          </p>
+          {hash && (
+            <a 
+              href={`https://sepolia.basescan.org/tx/${hash}`} 
+              target="_blank" 
+              rel="noreferrer"
+              className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-900 underline"
+            >
+              View on BaseScan <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Purchase button
+  return (
+    <div className="space-y-3">
+      <button 
+        onClick={handlePurchase}
+        disabled={loading}
+        className="w-full py-4 bg-amber-800 hover:bg-amber-900 text-amber-50 font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 shadow-lg shadow-amber-900/20"
+      >
+        {isWritePending ? "Confirm in Wallet..." : 
+         isConfirming ? "Confirming on Base..." : 
+         "Purchase Policy"}
+        {!loading && <ArrowRight size={18} />}
+      </button>
+      
+      {hash && !isConfirmed && (
+        <p className="text-center text-xs text-amber-900/60">
+          Transaction submitted. Waiting for confirmation...
+        </p>
+      )}
+    </div>
+  );
+}
+```
+
+### Key Features
+
+<Accordion title="Hydration Mismatch Prevention">
+  ```typescript
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  
+  if (!mounted) {
+    return <LoadingPlaceholder />;
+  }
+  ```
+  
+  This prevents Next.js hydration errors by ensuring the client-side rendering matches the server-side initial render.
+</Accordion>
+
+<Accordion title="Transaction State Management">
+  ```typescript
+  const { data: hash, isPending, writeContract } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
+  
+  const loading = isPending || isConfirming;
+  ```
+  
+  Track both wallet confirmation and blockchain confirmation separately for better UX.
+</Accordion>
+
+<Accordion title="Success State Persistence">
+  ```typescript
+  const [purchased, setPurchased] = useState(false);
+  
+  useEffect(() => {
+    if (isConfirmed) {
+      setPurchased(true);
+    }
+  }, [isConfirmed]);
+  ```
+  
+  Persist the success state even if the component re-renders.
+</Accordion>
+
+## Dynamic Coordinates
+
+For production, allow users to select their farm location:
+
+```typescript
+import { useState } from 'react';
+import { useWriteContract } from 'wagmi';
+import { parseEther } from 'viem';
+
+export function DynamicPolicyPurchase() {
+  const [location, setLocation] = useState({ lat: 0, lng: 0 });
+  const { writeContract } = useWriteContract();
+
+  const handleLocationSelect = (lat: number, lng: number) => {
+    setLocation({ lat, lng });
+  };
+
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [
+        Math.round(location.lat * 100),  // Scale by 100
+        Math.round(location.lng * 100)
+      ],
+      value: parseEther("0.0001")
+    });
+  };
+
+  return (
+    <div>
+      <MapPicker onLocationSelect={handleLocationSelect} />
+      <div className="mt-4">
+        <p>Selected: {location.lat}°, {location.lng}°</p>
+        <button onClick={handlePurchase}>Purchase Policy</button>
+      </div>
+    </div>
+  );
+}
+```
+
+### Map Integration Example
+
+```typescript
+import { GoogleMap, Marker, useLoadScript } from '@react-google-maps/api';
+
+interface MapPickerProps {
+  onLocationSelect: (lat: number, lng: number) => void;
+}
+
+export function MapPicker({ onLocationSelect }: MapPickerProps) {
+  const { isLoaded } = useLoadScript({
+    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || ''
+  });
+
+  const [marker, setMarker] = useState({ lat: 0.05, lng: 36.0 });
+
+  const handleMapClick = (e: google.maps.MapMouseEvent) => {
+    if (e.latLng) {
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      setMarker({ lat, lng });
+      onLocationSelect(lat, lng);
+    }
+  };
+
+  if (!isLoaded) return <div>Loading map...</div>;
+
+  return (
+    <GoogleMap
+      zoom={8}
+      center={marker}
+      mapContainerClassName="w-full h-96 rounded-lg"
+      onClick={handleMapClick}
+    >
+      <Marker position={marker} />
+    </GoogleMap>
+  );
+}
+```
+
+## Variable Premium Amounts
+
+Allow users to choose their coverage level:
+
+```typescript
+import { useState } from 'react';
+import { parseEther, formatEther } from 'viem';
+
+export function PremiumSelector() {
+  const [premium, setPremium] = useState("0.0001");
+  const { writeContract } = useWriteContract();
+
+  const coverage = parseFloat(premium) * 10; // 10x multiplier
+
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [5000, 360000],
+      value: parseEther(premium)
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-2">
+          Premium Amount (ETH)
+        </label>
+        <input
+          type="number"
+          step="0.0001"
+          min="0.0001"
+          value={premium}
+          onChange={(e) => setPremium(e.target.value)}
+          className="w-full px-4 py-2 border rounded-lg"
+        />
+      </div>
+      
+      <div className="bg-amber-50 p-4 rounded-lg">
+        <div className="flex justify-between text-sm">
+          <span>Premium:</span>
+          <span className="font-semibold">{premium} ETH</span>
+        </div>
+        <div className="flex justify-between text-sm mt-2">
+          <span>Coverage:</span>
+          <span className="font-semibold text-green-700">{coverage} ETH</span>
+        </div>
+        <div className="flex justify-between text-sm mt-2">
+          <span>Multiplier:</span>
+          <span className="font-semibold">10x</span>
+        </div>
+      </div>
+      
+      <button
+        onClick={handlePurchase}
+        className="w-full py-3 bg-amber-800 text-white rounded-lg font-semibold"
+      >
+        Purchase Policy
+      </button>
+    </div>
+  );
+}
+```
+
+## Error Handling
+
+Handle common transaction errors:
+
+```typescript
+import { useWriteContract } from 'wagmi';
+import { useState } from 'react';
+
+export function RobustPolicyPurchase() {
+  const { writeContract, error, isError } = useWriteContract();
+  const [customError, setCustomError] = useState<string>('');
+
+  const handlePurchase = async () => {
+    try {
+      setCustomError('');
+      
+      writeContract({
+        address: ARIDGUARD_ADDRESS,
+        abi: ARIDGUARD_ABI,
+        functionName: 'purchasePolicy',
+        args: [5000, 360000],
+        value: parseEther("0.0001")
+      });
+    } catch (err: any) {
+      console.error('Purchase failed:', err);
+      
+      // Custom error messages
+      if (err.message?.includes('insufficient funds')) {
+        setCustomError('Insufficient balance. Please add more ETH.');
+      } else if (err.message?.includes('user rejected')) {
+        setCustomError('Transaction cancelled.');
+      } else {
+        setCustomError('Transaction failed. Please try again.');
+      }
+    }
+  };
+
+  return (
+    <div>
+      {(isError || customError) && (
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg mb-4">
+          <p className="font-semibold">Error</p>
+          <p className="text-sm mt-1">
+            {customError || error?.message}
+          </p>
+        </div>
+      )}
+      
+      <button onClick={handlePurchase}>
+        Purchase Policy
+      </button>
+    </div>
+  );
+}
+```
+
+### Common Error Scenarios
+
+<Accordion title="Insufficient Funds">
+  **Error**: `"insufficient funds for gas * price + value"`
+  
+  **Cause**: User doesn't have enough ETH to cover premium + gas fees
+  
+  **Solution**:
+  ```typescript
+  // Check balance before transaction
+  import { useBalance } from 'wagmi';
+  
+  const { data: balance } = useBalance({ address: userAddress });
+  const premium = parseEther("0.0001");
+  const estimatedGas = parseEther("0.00001"); // ~0.00001 ETH
+  
+  if (balance && balance.value < premium + estimatedGas) {
+    alert('Insufficient balance');
+    return;
+  }
+  ```
+</Accordion>
+
+<Accordion title="User Rejected Transaction">
+  **Error**: `"User rejected the request"`
+  
+  **Cause**: User clicked "Reject" in wallet
+  
+  **Solution**: Handle gracefully, allow retry
+  ```typescript
+  if (err.message?.includes('user rejected')) {
+    // Don't show as error, user intentionally cancelled
+    return;
+  }
+  ```
+</Accordion>
+
+<Accordion title="Wrong Network">
+  **Error**: `"chain mismatch"`
+  
+  **Cause**: User is connected to wrong network
+  
+  **Solution**:
+  ```typescript
+  import { useSwitchChain } from 'wagmi';
+  import { baseSepolia } from 'wagmi/chains';
+  
+  const { switchChain } = useSwitchChain();
+  
+  try {
+    await switchChain({ chainId: baseSepolia.id });
+    // Then proceed with transaction
+  } catch (err) {
+    alert('Please switch to Base Sepolia network');
+  }
+  ```
+</Accordion>
+
+## Transaction Receipt
+
+Access detailed transaction information:
+
+```typescript
+import { useWaitForTransactionReceipt } from 'wagmi';
+
+export function TransactionDetails({ hash }: { hash: `0x${string}` }) {
+  const { data: receipt, isLoading, isSuccess } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  if (isLoading) return <div>Confirming transaction...</div>;
+  if (!isSuccess) return null;
+
+  return (
+    <div className="bg-white border rounded-lg p-4 space-y-2">
+      <h3 className="font-bold">Transaction Confirmed</h3>
+      <div className="text-sm space-y-1">
+        <p><strong>Block:</strong> {receipt.blockNumber.toString()}</p>
+        <p><strong>Gas Used:</strong> {receipt.gasUsed.toString()}</p>
+        <p><strong>Status:</strong> {receipt.status === 'success' ? '✅ Success' : '❌ Failed'}</p>
+        <a
+          href={`https://sepolia.basescan.org/tx/${hash}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-600 hover:underline"
+        >
+          View on BaseScan →
+        </a>
+      </div>
+    </div>
+  );
+}
+```
+
+## Event Listening
+
+Listen for `PolicyPurchased` events:
+
+```typescript
+import { useWatchContractEvent } from 'wagmi';
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from '../utils/constants';
+
+export function PolicyEventListener() {
+  useWatchContractEvent({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    eventName: 'PolicyPurchased',
+    onLogs(logs) {
+      logs.forEach(log => {
+        console.log('New policy purchased!');
+        console.log('Policy ID:', log.args.policyId);
+        console.log('Farmer:', log.args.farmer);
+        console.log('Location:', log.args.lat, log.args.long);
+        console.log('Premium:', log.args.premium);
+        
+        // Update UI, show notification, etc.
+      });
+    },
+  });
+
+  return null; // This is just a listener component
+}
+```
+
+## Testing
+
+### Local Testing with Hardhat
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+
+describe("PolicyPurchase", function () {
+  it("Should purchase a policy", async function () {
+    const [owner, farmer] = await ethers.getSigners();
+    
+    const AridGuard = await ethers.getContractFactory("AridGuard");
+    const aridGuard = await AridGuard.deploy(owner.address);
+    
+    const premium = ethers.parseEther("0.0001");
+    const lat = 5000;
+    const long = 360000;
+    
+    await expect(
+      aridGuard.connect(farmer).purchasePolicy(lat, long, { value: premium })
+    )
+      .to.emit(aridGuard, "PolicyPurchased")
+      .withArgs(
+        expect.any(String), // policyId
+        farmer.address,
+        lat,
+        long,
+        premium
+      );
+    
+    // Verify policy was created
+    const policyId = await aridGuard.activePolicyIds(0);
+    const policy = await aridGuard.policies(policyId);
+    
+    expect(policy.farmer).to.equal(farmer.address);
+    expect(policy.lat).to.equal(lat);
+    expect(policy.long).to.equal(long);
+    expect(policy.premiumPaid).to.equal(premium);
+    expect(policy.isActive).to.be.true;
+  });
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Monitoring Policies"
+    icon="chart-line"
+    href="/integration/monitoring-policies"
+  >
+    Track policy status and listen for events
+  </Card>
+  <Card
+    title="Smart Contract Reference"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Complete contract API documentation
+  </Card>
+</CardGroup>

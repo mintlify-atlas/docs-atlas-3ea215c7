@@ -1,0 +1,429 @@
+---
+title: "Local Simulation"
+description: "Test and debug your AridGuard CRE workflow locally before deploying to the oracle network"
+---
+
+## Overview
+
+Local simulation allows you to run and test your CRE workflow on your development machine without deploying to the Chainlink oracle network. This enables rapid iteration and debugging.
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Chainlink CLI" icon="terminal">
+    Install the Chainlink CLI for local simulation
+  </Card>
+  <Card title="Workflow Files" icon="folder">
+    Complete main.ts, config.json, secrets.yaml, workflow.yaml
+  </Card>
+  <Card title="Environment Variables" icon="key">
+    Set CRE_OPENWEATHER_API_KEY
+  </Card>
+  <Card title="Dependencies" icon="box">
+    Install all npm packages
+  </Card>
+</CardGroup>
+
+## Install Chainlink CLI
+
+<Steps>
+  <Step title="Download CLI">
+    Install the Chainlink CLI tool:
+    ```bash
+    npm install -g @chainlink/cli
+    ```
+    
+    Or download from [Chainlink's official releases](https://github.com/smartcontractkit/chainlink).
+  </Step>
+  
+  <Step title="Verify Installation">
+    Check that the CLI is installed:
+    ```bash
+    chainlink --version
+    ```
+  </Step>
+  
+  <Step title="Authenticate (if required)">
+    Some CLI operations may require authentication:
+    ```bash
+    chainlink auth login
+    ```
+  </Step>
+</Steps>
+
+## Workflow Configuration
+
+Ensure your `workflow.yaml` is configured for local simulation:
+
+```yaml
+local-simulation:
+  user-workflow:
+    workflow-name: "aridguard-local"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "./secrets.yaml"
+```
+
+<Info>
+  The `workflow-path`, `config-path`, and `secrets-path` are relative to the directory where you run the simulation command.
+</Info>
+
+## Running Local Simulation
+
+### Basic Simulation
+
+Run your workflow locally:
+
+```bash
+chainlink cre local simulate
+```
+
+This command:
+1. Loads `workflow.yaml` configuration
+2. Compiles `main.ts` TypeScript code
+3. Reads `config.json` and `secrets.yaml`
+4. Executes the workflow in a local runtime environment
+5. Simulates oracle consensus (if applicable)
+
+### Simulation Output
+
+Expected console output:
+
+```
+[CRE] Loading workflow: aridguard-local
+[CRE] Compiling TypeScript...
+[CRE] Initializing runtime...
+[CRE] Executing cron trigger...
+[WORKFLOW] Aggregated median rainfall: 8.5 mm
+[WORKFLOW] ALERT: Drought condition detected! Rainfall 8.5 is below threshold 10.
+[WORKFLOW] Reading active policies from contract at 0x23d747751abF06b68539f0684abe21E2A76901fc...
+[WORKFLOW] Found active policy ID: 0x1234...5678. Executing payout transaction on Base...
+[CRE] Workflow completed successfully
+```
+
+## Simulation Modes
+
+### Single Execution
+
+Run the workflow once:
+
+```bash
+chainlink cre local simulate --once
+```
+
+Useful for testing specific scenarios or debugging.
+
+### Scheduled Execution
+
+Run according to cron schedule:
+
+```bash
+chainlink cre local simulate --follow-schedule
+```
+
+This respects the `schedule` parameter in `config.json` and runs continuously.
+
+### Mock Mode
+
+Simulate without external API calls:
+
+```bash
+chainlink cre local simulate --mock-http
+```
+
+Returns mock data for HTTP requests, useful for testing without API limits.
+
+## Debugging
+
+### Enable Verbose Logging
+
+Get detailed execution logs:
+
+```bash
+chainlink cre local simulate --verbose
+```
+
+### TypeScript Compilation
+
+Compile without running:
+
+```bash
+tsc --noEmit
+```
+
+Check for type errors before simulation.
+
+### Log Output
+
+Add logging throughout your workflow:
+
+```typescript
+const onCronTrigger = (runtime: Runtime<Config>) => {
+  runtime.log(`Starting workflow execution...`);
+  
+  const secretResponse = runtime.getSecret({ id: "OPENWEATHER_API_KEY" }).result();
+  runtime.log(`Secret retrieved successfully`);
+  
+  const httpCapability = new cre.capabilities.HTTPClient();
+  runtime.log(`HTTPClient initialized`);
+  
+  const medianRainfall = httpCapability
+    .sendRequest(runtime, fetchAndParse, consensusMedianAggregation())(runtime.config, apiKey)
+    .result();
+  
+  runtime.log(`Aggregated median rainfall: ${medianRainfall} mm`);
+  
+  // ... rest of workflow
+};
+```
+
+## Testing Scenarios
+
+### Test Drought Condition
+
+Modify `config.json` to force drought detection:
+
+```json
+{
+  "schedule": "* * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 100
+}
+```
+
+Setting a high threshold ensures rainfall will be below it.
+
+### Test Normal Condition
+
+Set a low threshold to simulate normal conditions:
+
+```json
+{
+  "thresholdRainfall": 0
+}
+```
+
+Rainfall should always exceed this threshold.
+
+### Test Different Locations
+
+Change the weather API location:
+
+```json
+{
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=London&units=metric"
+}
+```
+
+Test with various geographic regions.
+
+## Mock HTTP Responses
+
+For testing without API calls, create mock responses:
+
+```typescript
+const fetchAndParse = (sendRequester: HTTPSendRequester, config: Config, apiKey: string) => {
+  // Development mock
+  if (process.env.NODE_ENV === 'development') {
+    return 5.0; // Mock rainfall value
+  }
+  
+  // Production code
+  const url = config.weatherApiUrl.includes("?") 
+    ? `${config.weatherApiUrl}&appid=${apiKey}` 
+    : `${config.weatherApiUrl}?appid=${apiKey}`;
+    
+  const response = sendRequester
+    .sendRequest({ url: url, method: "GET" })
+    .result();
+    
+  // ... parse response
+};
+```
+
+## Consensus Simulation
+
+Local simulation can simulate multi-node consensus:
+
+```bash
+chainlink cre local simulate --nodes 5
+```
+
+This simulates 5 oracle nodes fetching data independently and computing consensus.
+
+### Median Aggregation Test
+
+With `--nodes 5`, the simulator:
+1. Executes `fetchAndParse` 5 times with slight variations
+2. Collects all 5 rainfall readings
+3. Computes the median value
+4. Uses median for threshold comparison
+
+Example output:
+```
+[Node 1] Rainfall: 8.2 mm
+[Node 2] Rainfall: 8.7 mm
+[Node 3] Rainfall: 8.5 mm
+[Node 4] Rainfall: 8.3 mm
+[Node 5] Rainfall: 8.9 mm
+[Consensus] Median rainfall: 8.5 mm
+```
+
+## Smart Contract Simulation
+
+### Local Blockchain
+
+For testing EVM operations, run a local blockchain:
+
+<Tabs>
+  <Tab title="Hardhat">
+    ```bash
+    npx hardhat node
+    ```
+    
+    Update `config.json` to use local network:
+    ```json
+    {
+      "evm": {
+        "chainSelectorName": "localhost",
+        "contractAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Anvil (Foundry)">
+    ```bash
+    anvil
+    ```
+    
+    Anvil provides a local Ethereum node for testing.
+  </Tab>
+  
+  <Tab title="Ganache">
+    ```bash
+    npx ganache
+    ```
+    
+    Ganache creates a personal Ethereum blockchain for development.
+  </Tab>
+</Tabs>
+
+### Mock Contract Calls
+
+Comment out EVM operations for isolated testing:
+
+```typescript
+if (medianRainfall < runtime.config.thresholdRainfall) {
+  runtime.log(`ALERT: Drought condition detected!`);
+  
+  // Comment out for local testing without blockchain
+  // const evmClient = new cre.capabilities.EVMClient(...);
+  // const contractCall = evmClient.callContract(...);
+  
+  // Mock payout for testing
+  const mockPolicyId = "0x1234567890abcdef";
+  runtime.log(`Mock payout executed for policy: ${mockPolicyId}`);
+  
+  return `Payout Executed for rainfall: ${medianRainfall}`;
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Simulation fails to start">
+    Check that all required files exist:
+    ```bash
+    ls -la main.ts config.json secrets.yaml workflow.yaml
+    ```
+    
+    Verify TypeScript compiles:
+    ```bash
+    npx tsc --noEmit
+    ```
+  </Accordion>
+  
+  <Accordion title="Secret not found error">
+    Ensure environment variable is set:
+    ```bash
+    echo $CRE_OPENWEATHER_API_KEY
+    ```
+    
+    Set it if missing:
+    ```bash
+    export CRE_OPENWEATHER_API_KEY="your_api_key"
+    ```
+  </Accordion>
+  
+  <Accordion title="HTTP request fails">
+    Test API endpoint manually:
+    ```bash
+    curl "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric&appid=YOUR_KEY"
+    ```
+    
+    Check for:
+    - Invalid API key
+    - Rate limiting
+    - Network connectivity
+    - Malformed URL
+  </Accordion>
+  
+  <Accordion title="Contract call fails">
+    Verify contract address and network:
+    ```typescript
+    runtime.log(`Contract: ${contractAddress}`);
+    runtime.log(`Network: ${chainName}`);
+    ```
+    
+    Ensure:
+    - Contract is deployed to the network
+    - ABI matches deployed contract
+    - Network is reachable
+  </Accordion>
+</AccordionGroup>
+
+## Performance Testing
+
+### Measure Execution Time
+
+Add timing logs:
+
+```typescript
+const onCronTrigger = (runtime: Runtime<Config>) => {
+  const startTime = Date.now();
+  
+  // ... workflow logic
+  
+  const endTime = Date.now();
+  runtime.log(`Execution time: ${endTime - startTime}ms`);
+};
+```
+
+### Monitor Resource Usage
+
+Run simulation with monitoring:
+
+```bash
+time chainlink cre local simulate --once
+```
+
+Outputs execution time and resource consumption.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deployment" icon="rocket" href="/cre/setup/deployment">
+    Deploy your workflow to the oracle network
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/cre/configuration">
+    Fine-tune workflow parameters
+  </Card>
+  <Card title="Weather API" icon="cloud" href="/cre/integration/weather-api">
+    Learn about weather data integration
+  </Card>
+  <Card title="Capabilities" icon="puzzle-piece" href="/cre/capabilities">
+    Explore advanced CRE features
+  </Card>
+</CardGroup>

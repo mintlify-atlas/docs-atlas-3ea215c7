@@ -1,0 +1,76 @@
+---
+title: "CRE Workflow Overview"
+description: "Introduction to the Chainlink Runtime Environment (CRE) workflow for AridGuard's parametric insurance oracle"
+---
+
+## What is CRE?
+
+The Chainlink Runtime Environment (CRE) is a decentralized oracle framework that enables secure, consensus-driven data aggregation and smart contract automation. AridGuard uses CRE to build a parametric insurance oracle that:
+
+- Fetches real-time weather data from external APIs
+- Aggregates rainfall measurements across multiple oracle nodes using consensus
+- Automatically triggers insurance payouts when drought conditions are detected
+- Executes blockchain transactions on Base Sepolia testnet
+
+## How AridGuard Uses CRE
+
+AridGuard's CRE workflow implements a fully automated parametric insurance system:
+
+1. **Scheduled Monitoring**: A cron trigger runs at regular intervals to check weather conditions
+2. **Data Fetching**: HTTPClient capability fetches rainfall data from OpenWeather API
+3. **Consensus Aggregation**: Multiple oracle nodes fetch data and compute the median rainfall
+4. **Threshold Detection**: The workflow checks if rainfall falls below the drought threshold
+5. **Smart Contract Interaction**: When drought is detected, EVMClient reads active policies and executes payouts
+
+## Workflow Architecture
+
+```typescript
+const initWorkflow = (config: Config) => {
+  const cron = new cre.capabilities.CronCapability();
+  return [cre.handler(cron.trigger({ schedule: config.schedule }), onCronTrigger)];
+};
+```
+
+The workflow consists of:
+
+- **Trigger**: CronCapability schedules automated checks
+- **Handler**: `onCronTrigger` function processes each execution
+- **Capabilities**: HTTPClient for API calls, EVMClient for blockchain interactions
+- **Consensus**: Median aggregation across decentralized oracle nodes
+
+## Key Benefits
+
+<AccordionGroup>
+  <Accordion title="Decentralized Trust">
+    Multiple independent oracle nodes fetch and aggregate data, eliminating single points of failure and manipulation.
+  </Accordion>
+  
+  <Accordion title="Automated Execution">
+    Smart contract payouts are triggered automatically when conditions are met, with no manual intervention required.
+  </Accordion>
+  
+  <Accordion title="Transparent Logic">
+    All threshold logic and payout conditions are visible in the workflow code and verifiable on-chain.
+  </Accordion>
+  
+  <Accordion title="Real-Time Monitoring">
+    Scheduled checks ensure rapid detection and response to drought conditions.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/cre/configuration">
+    Learn how to configure the CRE workflow parameters
+  </Card>
+  <Card title="Installation" icon="download" href="/cre/setup/installation">
+    Set up your development environment
+  </Card>
+  <Card title="Capabilities" icon="puzzle-piece" href="/cre/capabilities">
+    Explore available CRE SDK capabilities
+  </Card>
+  <Card title="Weather API" icon="cloud" href="/cre/integration/weather-api">
+    Integrate with weather data providers
+  </Card>
+</CardGroup>

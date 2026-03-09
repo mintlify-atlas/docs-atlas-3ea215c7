@@ -1,0 +1,739 @@
+---
+title: Smart Contracts
+description: Complete AridGuard.sol smart contract reference and API documentation
+---
+
+## Contract Overview
+
+The AridGuard smart contract is the on-chain settlement layer for the parametric insurance system. It manages policy creation, premium custody, and automated payout execution.
+
+**Deployed Contract:**
+- **Address:** `0x23d747751abF06b68539f0684abe21E2A76901fc`
+- **Network:** Base Sepolia (Chain ID: 84532)
+- **Compiler:** Solidity ^0.8.28
+- **License:** MIT
+
+<Note>
+  View the contract on [BaseScan](https://sepolia.basescan.org/address/0x23d747751abF06b68539f0684abe21E2A76901fc)
+</Note>
+
+## Complete Source Code
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract AridGuard is Ownable {
+    address public creAddress;
+    
+    struct Policy {
+        address farmer;
+        int256 lat;
+        int256 long;
+        uint256 premiumPaid;
+        bool isActive;
+    }
+    
+    mapping(bytes32 => Policy) public policies;
+    bytes32[] public activePolicyIds;
+    
+    event PolicyPurchased(
+        bytes32 indexed policyId, 
+        address indexed farmer, 
+        int256 lat, 
+        int256 long, 
+        uint256 premium
+    );
+    event PayoutExecuted(
+        bytes32 indexed policyId, 
+        address indexed farmer, 
+        uint256 payoutAmount
+    );
+    
+    constructor(address _creAddress) Ownable(msg.sender) {
+        creAddress = _creAddress;
+    }
+    
+    function setCREAddress(address _creAddress) external onlyOwner {
+        creAddress = _creAddress;
+    }
+    
+    modifier onlyCRE() {
+        require(msg.sender == creAddress, "Only CRE can execute this");
+        _;
+    }
+    
+    function purchasePolicy(int256 lat, int256 long) external payable {
+        require(msg.value > 0, "Premium must be greater than 0");
+        
+        bytes32 policyId = keccak256(
+            abi.encodePacked(msg.sender, lat, long, block.timestamp)
+        );
+        
+        policies[policyId] = Policy({
+            farmer: msg.sender,
+            lat: lat,
+            long: long,
+            premiumPaid: msg.value,
+            isActive: true
+        });
+        
+        activePolicyIds.push(policyId);
+        
+        emit PolicyPurchased(policyId, msg.sender, lat, long, msg.value);
+    }
+    
+    function executePayout(bytes32 policyId) external onlyCRE {
+        Policy storage policy = policies[policyId];
+        require(policy.isActive, "Policy is not active");
+        
+        policy.isActive = false;
+        uint256 payoutAmount = policy.premiumPaid * 10;
+        
+        require(address(this).balance >= payoutAmount, "Insufficient contract balance");
+        
+        (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+        require(success, "Payout transfer failed");
+        
+        emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+    }
+    
+    receive() external payable {}
+}
+```
+
+## State Variables
+
+### `creAddress`
+
+```solidity
+address public creAddress;
+```
+
+The authorized Chainlink CRE address that can execute payouts.
+
+- **Visibility:** Public
+- **Type:** `address`
+- **Set By:** Constructor and `setCREAddress()`
+- **Purpose:** Access control for payout execution
+
+### `policies`
+
+```solidity
+mapping(bytes32 => Policy) public policies;
+```
+
+Stores all policy data indexed by policy ID.
+
+- **Visibility:** Public (auto-generated getter)
+- **Type:** `mapping(bytes32 => Policy)`
+- **Key:** Policy ID (keccak256 hash)
+- **Value:** Policy struct
+
+### `activePolicyIds`
+
+```solidity
+bytes32[] public activePolicyIds;
+```
+
+Array of all active policy IDs for iteration.
+
+- **Visibility:** Public (auto-generated getter)
+- **Type:** `bytes32[]`
+- **Purpose:** Enables CRE to find policies needing payouts
+
+<Warning>
+  This array grows unbounded. Production implementations should use pagination or off-chain indexing.
+</Warning>
+
+## Data Structures
+
+### Policy Struct
+
+```solidity
+struct Policy {
+    address farmer;      // Policy owner's wallet address
+    int256 lat;          // Latitude (scaled by 100)
+    int256 long;         // Longitude (scaled by 100)
+    uint256 premiumPaid; // Amount paid in wei
+    bool isActive;       // Active status
+}
+```
+
+**Field Details:**
+
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `farmer` | `address` | Wallet address of policy owner | `0x1234...` |
+| `lat` | `int256` | Latitude × 100 (allows negatives) | `5000` (0.05°) |
+| `long` | `int256` | Longitude × 100 | `360000` (36.0°) |
+| `premiumPaid` | `uint256` | Premium in wei | `100000000000000` (0.0001 ETH) |
+| `isActive` | `bool` | Whether policy can receive payout | `true` |
+
+<Tip>
+  Coordinates are scaled by 100 because Solidity doesn't support floating-point numbers. Divide by 100 to get actual degrees.
+</Tip>
+
+## Functions
+
+### Constructor
+
+```solidity
+constructor(address _creAddress) Ownable(msg.sender)
+```
+
+Initializes the contract with the CRE address.
+
+**Parameters:**
+- `_creAddress` (address): The Chainlink CRE wallet address
+
+**Example:**
+```solidity
+// Deploy contract
+const AridGuard = await ethers.getContractFactory("AridGuard");
+const aridGuard = await AridGuard.deploy("0xCRE_ADDRESS_HERE");
+```
+
+### purchasePolicy
+
+```solidity
+function purchasePolicy(int256 lat, int256 long) external payable
+```
+
+Creates a new insurance policy for the caller.
+
+**Parameters:**
+- `lat` (int256): Latitude scaled by 100
+- `long` (int256): Longitude scaled by 100
+
+**Payment:**
+- `msg.value`: Premium amount (must be > 0)
+
+**Returns:** None (emits `PolicyPurchased` event)
+
+**Requirements:**
+- `msg.value > 0`
+
+**Events Emitted:**
+```solidity
+PolicyPurchased(policyId, msg.sender, lat, long, msg.value)
+```
+
+**Example Usage:**
+
+<CodeGroup>
+```typescript TypeScript (Wagmi)
+import { useWriteContract } from 'wagmi';
+import { parseEther } from 'viem';
+
+const { writeContract } = useWriteContract();
+
+writeContract({
+  address: '0x23d747751abF06b68539f0684abe21E2A76901fc',
+  abi: ARIDGUARD_ABI,
+  functionName: 'purchasePolicy',
+  args: [
+    5000,    // 0.05° latitude
+    360000   // 36.0° longitude
+  ],
+  value: parseEther('0.0001')
+});
+```
+
+```javascript Web3.js
+const web3 = new Web3(provider);
+const contract = new web3.eth.Contract(ABI, contractAddress);
+
+await contract.methods
+  .purchasePolicy(5000, 360000)
+  .send({
+    from: userAddress,
+    value: web3.utils.toWei('0.0001', 'ether')
+  });
+```
+
+```python Python (Web3.py)
+from web3 import Web3
+
+w3 = Web3(Web3.HTTPProvider(rpc_url))
+contract = w3.eth.contract(address=contract_address, abi=abi)
+
+tx_hash = contract.functions.purchasePolicy(
+    5000,    # lat
+    360000   # long
+).transact({
+    'from': user_address,
+    'value': w3.to_wei(0.0001, 'ether')
+})
+```
+</CodeGroup>
+
+**Policy ID Generation:**
+
+The policy ID is deterministically generated:
+
+```solidity
+bytes32 policyId = keccak256(
+    abi.encodePacked(
+        msg.sender,      // Caller address
+        lat,             // Latitude
+        long,            // Longitude
+        block.timestamp  // Current block timestamp
+    )
+);
+```
+
+This ensures:
+- Each policy has a unique ID
+- Same user can buy multiple policies (different timestamps)
+- Policy ID is deterministic and verifiable
+
+### executePayout
+
+```solidity
+function executePayout(bytes32 policyId) external onlyCRE
+```
+
+Executes a payout for a policy (CRE only).
+
+**Parameters:**
+- `policyId` (bytes32): The policy ID to pay out
+
+**Access:** Only `creAddress` can call
+
+**Requirements:**
+- Caller must be `creAddress`
+- Policy must exist and be active
+- Contract balance must be sufficient
+- Transfer must succeed
+
+**Effects:**
+- Sets `policy.isActive = false`
+- Transfers `premiumPaid * 10` to farmer
+
+**Events Emitted:**
+```solidity
+PayoutExecuted(policyId, farmer, payoutAmount)
+```
+
+**Example Usage:**
+
+<CodeGroup>
+```typescript CRE Workflow
+import { encodeFunctionData } from 'viem';
+import { prepareReportRequest } from '@chainlink/cre-sdk';
+
+const writeAbi = [{
+  type: "function",
+  name: "executePayout",
+  inputs: [{ type: "bytes32", name: "policyId" }],
+  outputs: [],
+  stateMutability: "nonpayable"
+}] as const;
+
+const writeData = encodeFunctionData({
+  abi: writeAbi,
+  functionName: "executePayout",
+  args: [policyId as `0x${string}`],
+});
+
+runtime.report(prepareReportRequest(writeData)).result();
+```
+
+```javascript Direct Call (Owner)
+// Note: Only CRE address can call this
+const tx = await contract.executePayout(policyId, {
+  from: creAddress,
+  gasLimit: 100000
+});
+```
+</CodeGroup>
+
+**Gas Costs:**
+
+```
+Operation         | Gas Used
+------------------|----------
+Storage reads     | ~5,000
+Storage writes    | ~20,000
+ETH transfer      | ~21,000
+Event emission    | ~2,000
+------------------|----------
+Total (approx)    | ~50,000 gas
+
+At 0.001 gwei:    ~$0.0001
+```
+
+### setCREAddress
+
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner
+```
+
+Updates the authorized CRE address (owner only).
+
+**Parameters:**
+- `_creAddress` (address): New CRE address
+
+**Access:** Only contract owner
+
+**Purpose:** Allows updating CRE address if:
+- CRE private key is compromised
+- Migrating to new CRE infrastructure
+- Testing with different addresses
+
+**Example:**
+```solidity
+// Owner updates CRE address
+await contract.setCREAddress("0xNEW_CRE_ADDRESS", {
+  from: ownerAddress
+});
+```
+
+<Warning>
+  Be extremely careful when updating `creAddress`. An incorrect address will prevent all future payouts.
+</Warning>
+
+### receive
+
+```solidity
+receive() external payable {}
+```
+
+Allows contract to receive ETH deposits.
+
+**Purpose:** Fund contract for payouts
+
+**Example:**
+```javascript
+// Send ETH to contract
+await signer.sendTransaction({
+  to: contractAddress,
+  value: parseEther("1.0")
+});
+```
+
+## Modifiers
+
+### onlyCRE
+
+```solidity
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+Restricts function access to the CRE address only.
+
+**Used By:**
+- `executePayout()`
+
+**Purpose:** Prevents unauthorized payout attempts
+
+### onlyOwner
+
+```solidity
+// Inherited from OpenZeppelin Ownable
+modifier onlyOwner() {
+    require(msg.sender == owner(), "Only owner can execute this");
+    _;
+}
+```
+
+Restricts function access to contract owner.
+
+**Used By:**
+- `setCREAddress()`
+
+**Purpose:** Administrative functions
+
+## Events
+
+### PolicyPurchased
+
+```solidity
+event PolicyPurchased(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    int256 lat,
+    int256 long,
+    uint256 premium
+);
+```
+
+Emitted when a new policy is created.
+
+**Parameters:**
+- `policyId` (indexed): Unique policy identifier
+- `farmer` (indexed): Policy owner address
+- `lat`: Latitude coordinate (scaled by 100)
+- `long`: Longitude coordinate (scaled by 100)
+- `premium`: Premium amount paid (in wei)
+
+**Indexing:** `policyId` and `farmer` are indexed for efficient filtering
+
+**Example Event:**
+```json
+{
+  "policyId": "0xabcd1234...",
+  "farmer": "0x1234...",
+  "lat": 5000,
+  "long": 360000,
+  "premium": "100000000000000"
+}
+```
+
+### PayoutExecuted
+
+```solidity
+event PayoutExecuted(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    uint256 payoutAmount
+);
+```
+
+Emitted when a payout is executed.
+
+**Parameters:**
+- `policyId` (indexed): Policy that received payout
+- `farmer` (indexed): Recipient address
+- `payoutAmount`: Amount transferred (in wei)
+
+**Example Event:**
+```json
+{
+  "policyId": "0xabcd1234...",
+  "farmer": "0x1234...",
+  "payoutAmount": "1000000000000000"
+}
+```
+
+## Security Considerations
+
+### Reentrancy Protection
+
+The contract follows **Checks-Effects-Interactions** pattern:
+
+```solidity
+function executePayout(bytes32 policyId) external onlyCRE {
+    // CHECKS
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    require(address(this).balance >= payoutAmount, "Insufficient balance");
+    
+    // EFFECTS (state changes before external calls)
+    policy.isActive = false;
+    
+    // INTERACTIONS (external calls last)
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+}
+```
+
+By setting `isActive = false` before the external call, reentrancy is prevented even without `ReentrancyGuard`.
+
+### Access Control
+
+**Only CRE can trigger payouts:**
+```solidity
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+**Only owner can update CRE address:**
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner {
+    creAddress = _creAddress;
+}
+```
+
+### Integer Overflow/Underflow
+
+Solidity 0.8+ has built-in overflow checking:
+
+```solidity
+uint256 payoutAmount = policy.premiumPaid * 10; // Reverts on overflow
+```
+
+No need for SafeMath library.
+
+### Front-Running Resistance
+
+Policy IDs include `block.timestamp`:
+
+```solidity
+bytes32 policyId = keccak256(
+    abi.encodePacked(msg.sender, lat, long, block.timestamp)
+);
+```
+
+This prevents front-running attacks where someone tries to copy your policy parameters.
+
+## Testing
+
+### Unit Tests (Hardhat)
+
+```typescript
+import { expect } from "chai";
+import { ethers } from "hardhat";
+
+describe("AridGuard", function () {
+  let aridGuard: any;
+  let owner: any;
+  let cre: any;
+  let farmer: any;
+
+  beforeEach(async function () {
+    [owner, cre, farmer] = await ethers.getSigners();
+    
+    const AridGuard = await ethers.getContractFactory("AridGuard");
+    aridGuard = await AridGuard.deploy(cre.address);
+  });
+
+  describe("Policy Purchase", function () {
+    it("Should create a policy", async function () {
+      const premium = ethers.parseEther("0.0001");
+      const lat = 5000;
+      const long = 360000;
+
+      await expect(
+        aridGuard.connect(farmer).purchasePolicy(lat, long, { value: premium })
+      )
+        .to.emit(aridGuard, "PolicyPurchased")
+        .withArgs(
+          expect.any(String),
+          farmer.address,
+          lat,
+          long,
+          premium
+        );
+
+      const policyId = await aridGuard.activePolicyIds(0);
+      const policy = await aridGuard.policies(policyId);
+
+      expect(policy.farmer).to.equal(farmer.address);
+      expect(policy.premiumPaid).to.equal(premium);
+      expect(policy.isActive).to.be.true;
+    });
+
+    it("Should revert if premium is 0", async function () {
+      await expect(
+        aridGuard.connect(farmer).purchasePolicy(5000, 360000, { value: 0 })
+      ).to.be.revertedWith("Premium must be greater than 0");
+    });
+  });
+
+  describe("Payout Execution", function () {
+    it("Should execute payout", async function () {
+      // Purchase policy
+      const premium = ethers.parseEther("0.0001");
+      await aridGuard.connect(farmer).purchasePolicy(5000, 360000, { value: premium });
+      
+      const policyId = await aridGuard.activePolicyIds(0);
+      
+      // Fund contract
+      await owner.sendTransaction({
+        to: await aridGuard.getAddress(),
+        value: ethers.parseEther("1.0")
+      });
+
+      // Execute payout
+      await expect(
+        aridGuard.connect(cre).executePayout(policyId)
+      )
+        .to.emit(aridGuard, "PayoutExecuted")
+        .withArgs(policyId, farmer.address, premium * 10n);
+
+      // Check policy is now inactive
+      const policy = await aridGuard.policies(policyId);
+      expect(policy.isActive).to.be.false;
+    });
+
+    it("Should revert if caller is not CRE", async function () {
+      const premium = ethers.parseEther("0.0001");
+      await aridGuard.connect(farmer).purchasePolicy(5000, 360000, { value: premium });
+      
+      const policyId = await aridGuard.activePolicyIds(0);
+
+      await expect(
+        aridGuard.connect(farmer).executePayout(policyId)
+      ).to.be.revertedWith("Only CRE can execute this");
+    });
+  });
+});
+```
+
+## Deployment
+
+### Hardhat Deployment Script
+
+```typescript
+// scripts/deploy.ts
+import { ethers } from "hardhat";
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+  
+  console.log("Deploying AridGuard with account:", deployer.address);
+  
+  const creAddress = process.env.CRE_ADDRESS;
+  if (!creAddress) {
+    throw new Error("CRE_ADDRESS not set in environment");
+  }
+
+  const AridGuard = await ethers.getContractFactory("AridGuard");
+  const aridGuard = await AridGuard.deploy(creAddress);
+  await aridGuard.waitForDeployment();
+
+  const address = await aridGuard.getAddress();
+  console.log("AridGuard deployed to:", address);
+  
+  // Fund contract
+  const fundTx = await deployer.sendTransaction({
+    to: address,
+    value: ethers.parseEther("1.0")
+  });
+  await fundTx.wait();
+  console.log("Contract funded with 1 ETH");
+}
+
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+```
+
+### Deploy to Base Sepolia
+
+```bash
+cd contracts
+npx hardhat compile
+npx hardhat run scripts/deploy.ts --network baseSepolia
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="CRE Workflow"
+    icon="arrows-spin"
+    href="/architecture/cre-workflow"
+  >
+    Learn how CRE interacts with the contract
+  </Card>
+  <Card
+    title="Integration Guide"
+    icon="code"
+    href="/integration/policy-purchase"
+  >
+    Build applications on top of AridGuard
+  </Card>
+</CardGroup>

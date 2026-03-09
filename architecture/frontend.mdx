@@ -1,0 +1,517 @@
+---
+title: Frontend Architecture
+description: Next.js application structure, web3 integration, and UI implementation
+---
+
+## Technology Stack
+
+The AridGuard frontend is built with modern web3 technologies:
+
+<CardGroup cols={2}>
+  <Card title="Next.js 14" icon="react">
+    React framework with App Router and server components
+  </Card>
+  <Card title="Coinbase OnchainKit" icon="wallet">
+    Seamless wallet connection and identity components
+  </Card>
+  <Card title="Wagmi" icon="plug">
+    React hooks for Ethereum interactions
+  </Card>
+  <Card title="Viem" icon="code">
+    TypeScript Ethereum library with full type safety
+  </Card>
+  <Card title="TailwindCSS" icon="palette">
+    Utility-first CSS framework
+  </Card>
+  <Card title="Lucide Icons" icon="icons">
+    Modern icon library
+  </Card>
+</CardGroup>
+
+## Project Structure
+
+```
+frontend/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx          # Main landing page
+│   │   ├── layout.tsx        # Root layout with providers
+│   │   └── globals.css       # Global styles
+│   │
+│   └── utils/
+│       ├── constants.ts      # Contract address and ABI
+│       └── AridGuard.json    # Contract ABI artifact
+│
+├── public/               # Static assets
+├── package.json
+├── tsconfig.json
+└── tailwind.config.ts
+```
+
+## Main Page Implementation
+
+The complete landing page from `src/app/page.tsx`:
+
+```typescript
+"use client";
+
+import { useState, useEffect } from "react";
+import { 
+  Wallet, 
+  WalletDropdown, 
+  WalletDropdownLink, 
+  WalletDropdownDisconnect 
+} from '@coinbase/onchainkit/wallet';
+import { ConnectWallet } from '@coinbase/onchainkit/wallet';
+import { Address, Avatar, Name, Identity } from '@coinbase/onchainkit/identity';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseEther } from "viem";
+import { CloudRain, MapPin, ShieldCheck, ArrowRight, Sun, ExternalLink } from "lucide-react";
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from "../utils/constants";
+
+export default function Home() {
+  const { isConnected } = useAccount();
+  const [purchased, setPurchased] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Wagmi Hooks for Smart Contract Interaction
+  const { data: hash, isPending: isWritePending, writeContract } = useWriteContract();
+
+  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({
+    hash,
+  });
+
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [5000, 360000],
+      value: parseEther("0.0001"),
+    });
+  };
+
+  useEffect(() => {
+    if (isConfirmed) {
+      setPurchased(true);
+    }
+  }, [isConfirmed]);
+
+  const loading = isWritePending || isConfirming;
+
+  return (
+    <main className="min-h-screen p-8 pb-24 md:p-16 lg:px-32 relative overflow-hidden">
+      {/* Navigation */}
+      <nav className="flex justify-between items-center mb-16">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 bg-amber-700 rounded-full flex items-center justify-center">
+             <Sun className="text-amber-100" size={24} />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-amber-900 font-playfair">
+            AridGuard
+          </h1>
+        </div>
+        
+        <div className="organic-card p-1">
+          <Wallet>
+            <ConnectWallet className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold px-6 py-2 rounded-full transition-all">
+              <Avatar className="h-6 w-6" />
+              <Name />
+            </ConnectWallet>
+            <WalletDropdown>
+              <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+                <Avatar />
+                <Name />
+                <Address />
+              </Identity>
+              <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+                Wallet
+              </WalletDropdownLink>
+              <WalletDropdownDisconnect />
+            </WalletDropdown>
+          </Wallet>
+        </div>
+      </nav>
+
+      <div className="grid lg:grid-cols-2 gap-16 items-center">
+        {/* Left Column: Hero */}
+        <div className="space-y-8">
+          {/* Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-100/50 rounded-full text-amber-800 border border-amber-200 font-medium text-sm">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
+            Chainlink CRE + Base Sepolia
+          </div>
+          
+          {/* Heading */}
+          <h2 className="text-6xl md:text-7xl font-bold text-amber-950 font-playfair leading-[1.1]">
+            Deterministic <br/><span className="text-amber-700 italic">Drought</span> Protection.
+          </h2>
+          
+          {/* Description */}
+          <p className="text-lg text-amber-900/80 leading-relaxed max-w-xl">
+            AridGuard uses on-chain parametric execution to bypass traditional claims. 
+            If rainfall drops below a critical threshold, you get paid automatically in seconds.
+          </p>
+
+          {/* Feature Cards */}
+          <div className="flex flex-col sm:flex-row gap-4 pt-4">
+            <div className="flex items-center gap-3 px-6 py-4 bg-white/60 backdrop-blur-sm rounded-2xl border border-amber-900/10">
+              <CloudRain className="text-amber-700" size={24} />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Oracle Data</p>
+                <p className="text-xs text-amber-900/60">Median Aggregation</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 px-6 py-4 bg-white/60 backdrop-blur-sm rounded-2xl border border-amber-900/10">
+              <ShieldCheck className="text-amber-700" size={24} />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Instant Payouts</p>
+                <p className="text-xs text-amber-900/60">No manual claims</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column: Interaction Card */}
+        <div className="relative">
+          <div className="absolute inset-0 bg-amber-700/5 translate-x-4 translate-y-4 rounded-[2.5rem] -z-10"></div>
+          <div className="organic-card p-8 md:p-10 space-y-8">
+            <div className="flex items-center justify-between border-b border-amber-900/10 pb-6">
+              <h3 className="text-2xl font-bold font-playfair text-amber-950">Active Region</h3>
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-700 bg-amber-50 px-3 py-1.5 rounded-full">
+                 <MapPin size={16} /> Kenya, Rift Valley
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-amber-900/70">Premium (Testnet)</span>
+                <span className="font-semibold text-amber-950">0.0001 ETH</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-amber-900/70">Coverage Amount</span>
+                <span className="font-semibold text-green-700">0.001 ETH</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-amber-900/70">Trigger Threshold</span>
+                <span className="font-semibold text-amber-950">&lt; 10mm / month</span>
+              </div>
+            </div>
+
+            {mounted ? (
+              isConnected ? (
+                purchased ? (
+                   <div className="bg-green-50 text-green-800 p-6 rounded-2xl border border-green-200 flex flex-col items-center justify-center text-center gap-3">
+                     <ShieldCheck size={32} className="text-green-600" />
+                     <div>
+                       <h4 className="font-bold">Policy Active</h4>
+                       <p className="text-sm text-green-700/80 mt-1">
+                         CRE workflow is now monitoring rainfall for your coordinates.
+                       </p>
+                       {hash && (
+                         <a 
+                           href={`https://sepolia.basescan.org/tx/${hash}`} 
+                           target="_blank" 
+                           rel="noreferrer"
+                           className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-900 underline"
+                         >
+                           View on BaseScan <ExternalLink size={12} />
+                         </a>
+                       )}
+                     </div>
+                   </div>
+                ) : (
+                  <div className="space-y-3">
+                    <button 
+                      onClick={handlePurchase}
+                      disabled={loading}
+                      className="w-full py-4 bg-amber-800 hover:bg-amber-900 text-amber-50 font-semibold rounded-2xl transition-all flex items-center justify-center gap-2 disabled:opacity-70 shadow-lg shadow-amber-900/20"
+                    >
+                      {isWritePending ? "Confirm in Wallet..." : 
+                       isConfirming ? "Confirming on Base..." : 
+                       "Purchase Policy"}
+                      {!loading && <ArrowRight size={18} />}
+                    </button>
+                    {hash && !isConfirmed && (
+                      <p className="text-center text-xs text-amber-900/60">
+                        Transaction submitted. Waiting for confirmation...
+                      </p>
+                    )}
+                  </div>
+                )
+              ) : (
+                 <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-center">
+                    <p className="text-amber-900/80 text-sm mb-4">
+                      Connect your Smart Wallet to secure your crop.
+                    </p>
+                    <Wallet>
+                      <ConnectWallet className="w-full bg-amber-800 text-amber-50 py-3 rounded-xl justify-center font-medium">
+                         Connect Wallet
+                      </ConnectWallet>
+                    </Wallet>
+                 </div>
+              )
+            ) : (
+              <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-center animate-pulse">
+                <div className="h-12 bg-amber-200/50 rounded-xl w-full"></div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+```
+
+## Key Implementation Details
+
+### Hydration Mismatch Prevention
+
+```typescript
+const [mounted, setMounted] = useState(false);
+
+useEffect(() => {
+  setMounted(true);
+}, []);
+
+if (!mounted) {
+  return <LoadingPlaceholder />;
+}
+```
+
+**Why?** Next.js renders on server (no wallet state) then hydrates on client (with wallet state). Without this check, you get hydration mismatches.
+
+### Transaction State Management
+
+```typescript
+// Track transaction submission
+const { data: hash, isPending: isWritePending, writeContract } = useWriteContract();
+
+// Track blockchain confirmation
+const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+
+// Combined loading state
+const loading = isWritePending || isConfirming;
+```
+
+**States:**
+1. **Idle**: No transaction
+2. **Writing** (`isWritePending`): User confirming in wallet
+3. **Confirming** (`isConfirming`): Waiting for block confirmation
+4. **Confirmed** (`isConfirmed`): Transaction successful
+
+### Dynamic UI Based on State
+
+```typescript
+{mounted ? (
+  isConnected ? (
+    purchased ? (
+      <SuccessMessage />
+    ) : (
+      <PurchaseButton />
+    )
+  ) : (
+    <ConnectWalletPrompt />
+  )
+) : (
+  <LoadingPlaceholder />
+)}
+```
+
+**Flow:**
+- Not mounted → Loading placeholder
+- Not connected → Connect wallet prompt
+- Connected, not purchased → Purchase button
+- Purchased → Success message
+
+## Styling Approach
+
+### TailwindCSS Configuration
+
+```javascript
+// tailwind.config.ts
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        amber: {
+          50: '#fffbeb',
+          100: '#fef3c7',
+          // ... (extended amber palette)
+          900: '#78350f',
+          950: '#451a03',
+        },
+      },
+      fontFamily: {
+        playfair: ['Playfair Display', 'serif'],
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+### Brand Colors
+
+AridGuard uses an **amber/brown** color scheme:
+
+- Primary: `#92400e` (amber-800)
+- Accent: `#78350f` (amber-900)
+- Background: `#fffbeb` (amber-50)
+- Success: Green palette
+
+### Custom Components
+
+```css
+/* globals.css */
+.organic-card {
+  @apply bg-white/80 backdrop-blur-lg rounded-[2rem] border border-amber-900/10 shadow-xl;
+}
+
+.animate-ping {
+  animation: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+```
+
+## Web3 Integration
+
+### Contract Constants
+
+```typescript
+// src/utils/constants.ts
+import AridGuardArtifact from "./AridGuard.json";
+
+export const ARIDGUARD_ADDRESS = "0x23d747751abF06b68539f0684abe21E2A76901fc";
+export const ARIDGUARD_ABI = AridGuardArtifact.abi;
+```
+
+### Writing to Contract
+
+```typescript
+const handlePurchase = () => {
+  writeContract({
+    address: ARIDGUARD_ADDRESS,
+    abi: ARIDGUARD_ABI,
+    functionName: 'purchasePolicy',
+    args: [5000, 360000],
+    value: parseEther("0.0001"),
+  });
+};
+```
+
+### Reading from Contract
+
+```typescript
+import { useReadContract } from 'wagmi';
+
+const { data: policy } = useReadContract({
+  address: ARIDGUARD_ADDRESS,
+  abi: ARIDGUARD_ABI,
+  functionName: 'policies',
+  args: [policyId],
+});
+```
+
+## Performance Optimizations
+
+### Code Splitting
+
+Next.js automatically code-splits by route:
+
+```
+Page                Size     First Load JS
+┌λ /                   5.2 kB         120 kB
+└── ƒ /api/hello      0 B            0 B
+```
+
+### Image Optimization
+
+```typescript
+import Image from 'next/image';
+
+<Image
+  src="/logo.png"
+  alt="AridGuard"
+  width={40}
+  height={40}
+  priority
+/>
+```
+
+### Font Optimization
+
+```typescript
+import { Playfair_Display } from 'next/font/google';
+
+const playfair = Playfair_Display({ 
+  subsets: ['latin'],
+  display: 'swap',
+});
+```
+
+## Deployment
+
+### Vercel Deployment
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+cd frontend
+vercel
+```
+
+### Environment Variables
+
+```bash
+# Vercel dashboard: Settings > Environment Variables
+NEXT_PUBLIC_ONCHAINKIT_API_KEY=your_api_key
+```
+
+<Warning>
+  Only environment variables prefixed with `NEXT_PUBLIC_` are exposed to the browser.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Integration Guide"
+    icon="code"
+    href="/integration/wallet-connection"
+  >
+    Build your own interface to AridGuard
+  </Card>
+  <Card
+    title="Architecture Overview"
+    icon="diagram-project"
+    href="/architecture/overview"
+  >
+    Understand the complete system architecture
+  </Card>
+</CardGroup>

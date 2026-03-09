@@ -1,97 +1,95 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Welcome to AridGuard"
+description: "Decentralized parametric drought insurance with automated payouts powered by Chainlink CRE and Base blockchain"
 ---
 
-## Setting up
+## What is AridGuard?
 
-Get your documentation site up and running in minutes.
+AridGuard provides deterministic, automated drought protection for farmers. By leveraging the Chainlink Runtime Environment (CRE), AridGuard continuously monitors off-chain weather conditions and automatically triggers on-chain smart contract payouts when rainfall drops below a critical threshold.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
+**No manual claims. No delays. Just instant, transparent payouts.**
+
+<CardGroup cols={3}>
+  <Card title="Parametric Insurance" icon="shield-check" href="/features/parametric-insurance">
+    Automated claim processing based on weather data
+  </Card>
+  <Card title="Chainlink CRE" icon="link" href="/cre/introduction">
+    Off-chain compute for reliable weather monitoring
+  </Card>
+  <Card title="Instant Payouts" icon="bolt" href="/features/instant-payouts">
+    10x coverage when drought conditions are met
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+Get started with AridGuard in minutes.
+
+<Steps>
+  <Step title="Connect Your Wallet">
+    Use Coinbase OnchainKit to connect your wallet to the AridGuard platform
+  </Step>
+  <Step title="Purchase a Policy">
+    Select your coordinates and purchase drought insurance coverage
+  </Step>
+  <Step title="Automated Monitoring">
+    The CRE workflow monitors rainfall data and triggers payouts automatically
+  </Step>
+</Steps>
+
+<Card title="Start Now" icon="rocket" href="/quickstart" horizontal>
+  Follow our quickstart guide to purchase your first policy
 </Card>
 
-## Make it yours
+## How It Works
 
-Design a docs site that looks great and empowers your users.
+AridGuard combines three powerful technologies to deliver automated drought insurance:
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Smart Contracts" icon="file-contract" href="/architecture/smart-contracts">
+    Solidity contracts on Base Sepolia manage policies and execute payouts
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="CRE Workflow" icon="diagram-project" href="/architecture/cre-workflow">
+    Chainlink CRE fetches weather data and triggers on-chain transactions
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Frontend DApp" icon="browser" href="/architecture/frontend">
+    Next.js application with wallet integration for policy management
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Weather Oracle" icon="cloud-rain" href="/cre/integration/weather-api">
+    OpenWeather API provides real-time rainfall measurements
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Key Features
 
-Everything you need to create world-class documentation.
+<AccordionGroup>
+  <Accordion title="Parametric Insurance Model">
+    Unlike traditional insurance, AridGuard uses predefined parameters (rainfall below 10mm) to automatically trigger payouts. No claims adjusters, no paperwork, no delays.
+  </Accordion>
+  <Accordion title="Median Aggregation">
+    The CRE workflow uses consensus median aggregation to ensure reliable, tamper-resistant weather data from multiple oracle nodes.
+  </Accordion>
+  <Accordion title="10x Coverage">
+    When drought conditions are detected, farmers receive 10x their premium payment automatically to their wallet.
+  </Accordion>
+  <Accordion title="Base Sepolia Deployment">
+    Built on Base Sepolia testnet for low-cost, fast transactions with Ethereum security.
+  </Accordion>
+</AccordionGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Explore the Documentation
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Architecture Overview" icon="sitemap" href="/architecture/overview">
+    Understand the three-layer architecture powering AridGuard
+  </Card>
+  <Card title="Smart Contract API" icon="code" href="/contracts/aridguard">
+    Explore the AridGuard.sol contract functions and events
+  </Card>
+  <Card title="CRE Configuration" icon="gear" href="/cre/configuration">
+    Learn how to configure and deploy the CRE workflow
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/resources/deployment-guide">
+    Deploy AridGuard to your own environment
+  </Card>
+</CardGroup>

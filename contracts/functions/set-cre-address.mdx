@@ -1,0 +1,285 @@
+---
+title: setCREAddress
+description: Update the authorized Climate Risk Engine address (owner only)
+---
+
+The `setCREAddress` function allows the contract owner to update the authorized Climate Risk Engine (CRE) address that can execute insurance payouts.
+
+## Function Signature
+
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner
+```
+
+## Access Control
+
+<Warning>
+  This function is protected by the `onlyOwner` modifier and can only be called by the contract owner.
+</Warning>
+
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner {
+    creAddress = _creAddress;
+}
+```
+
+## Parameters
+
+<ParamField path="_creAddress" type="address" required>
+  The new address to authorize as the Climate Risk Engine. This address will have exclusive permission to call `executePayout`.
+</ParamField>
+
+## Return Values
+
+This function does not return a value and does not emit an event.
+
+<Note>
+  Consider adding an event emission for transparency when updating the CRE address in production.
+</Note>
+
+## Usage Example
+
+Using ethers.js:
+
+```javascript
+import { ethers } from 'ethers';
+
+// Connect with owner wallet
+const provider = new ethers.JsonRpcProvider('https://sepolia.base.org');
+const ownerSigner = new ethers.Wallet(process.env.OWNER_PRIVATE_KEY, provider);
+const contract = new ethers.Contract(contractAddress, abi, ownerSigner);
+
+// Update CRE address
+const newCREAddress = '0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb';
+
+try {
+  const tx = await contract.setCREAddress(newCREAddress);
+  console.log('Transaction submitted:', tx.hash);
+  
+  const receipt = await tx.wait();
+  console.log('CRE address updated in block:', receipt.blockNumber);
+  
+  // Verify the update
+  const currentCRE = await contract.creAddress();
+  console.log('Current CRE address:', currentCRE);
+} catch (error) {
+  console.error('Failed to update CRE address:', error.message);
+}
+```
+
+Using cast (Foundry):
+
+```bash
+cast send <CONTRACT_ADDRESS> \
+  "setCREAddress(address)" \
+  <NEW_CRE_ADDRESS> \
+  --private-key $OWNER_PRIVATE_KEY \
+  --rpc-url https://sepolia.base.org
+```
+
+Verify the update:
+
+```bash
+cast call <CONTRACT_ADDRESS> \
+  "creAddress()" \
+  --rpc-url https://sepolia.base.org
+```
+
+## Requirements
+
+<ResponseField name="Owner Authorization" type="requirement">
+  Caller must be the contract owner, otherwise reverts with "Ownable: caller is not the owner"
+</ResponseField>
+
+<ResponseField name="Valid Address" type="requirement">
+  The new CRE address should be a valid Ethereum address (non-zero recommended)
+</ResponseField>
+
+## State Changes
+
+1. Updates the `creAddress` state variable to the new address
+2. The new address immediately gains authorization to call `executePayout`
+3. The previous CRE address immediately loses authorization
+
+## When to Use
+
+Update the CRE address when:
+
+- **Initial Deployment**: After deployment if you need to change from the deployer address
+- **Key Rotation**: When rotating CRE credentials for security
+- **Infrastructure Changes**: When migrating CRE service to a new wallet
+- **Recovery**: If the CRE private key is compromised
+
+<Warning>
+  Changing the CRE address is a critical operation. Ensure:
+  - The new address is correct (double-check the address)
+  - You control the private key for the new address
+  - You've tested the new address can call executePayout
+  - You've updated environment variables in the CRE service
+</Warning>
+
+## Security Considerations
+
+### Owner Role
+
+The owner has significant power through this function:
+
+```solidity
+contract AridGuard is Ownable {
+    constructor(address _creAddress) Ownable(msg.sender) {
+        // msg.sender becomes the owner
+    }
+}
+```
+
+<Note>
+  The owner is set to `msg.sender` (the deployer) in the constructor.
+</Note>
+
+### Transfer Ownership
+
+For production deployments, consider transferring ownership to a multi-sig:
+
+```javascript
+// Transfer ownership to a Gnosis Safe or multi-sig
+await contract.transferOwnership(multiSigAddress);
+```
+
+### No Zero Address Check
+
+<Warning>
+  The function does not prevent setting the CRE address to the zero address (0x0). Setting to zero address would permanently disable payouts until updated again.
+</Warning>
+
+Consider adding validation:
+
+```solidity
+function setCREAddress(address _creAddress) external onlyOwner {
+    require(_creAddress != address(0), "CRE address cannot be zero");
+    creAddress = _creAddress;
+    emit CREAddressUpdated(_creAddress);
+}
+```
+
+## Gas Considerations
+
+- **Estimated Gas**: ~30,000 - 45,000 gas
+- **Low Cost**: This is a simple storage write operation
+
+## Best Practices
+
+### 1. Verify Before Updating
+
+Always verify the current CRE address before updating:
+
+```javascript
+const currentCRE = await contract.creAddress();
+console.log('Current CRE:', currentCRE);
+console.log('New CRE:', newCREAddress);
+
+// Confirm before proceeding
+if (confirm('Update CRE address?')) {
+  await contract.setCREAddress(newCREAddress);
+}
+```
+
+### 2. Test the New Address
+
+Before updating in production:
+
+1. Deploy a test contract
+2. Set the new CRE address on the test contract
+3. Test calling `executePayout` from the new address
+4. Verify it works as expected
+
+### 3. Update Environment Variables
+
+After updating the CRE address on-chain, update your CRE service configuration:
+
+```bash
+# Update CRE service .env
+CRE_PRIVATE_KEY=<new_private_key>
+CRE_ADDRESS=<new_address>
+```
+
+Restart the CRE service to pick up the new configuration.
+
+### 4. Document the Change
+
+Maintain a log of CRE address changes:
+
+```json
+{
+  "cre_address_history": [
+    {
+      "address": "0x1234...",
+      "set_at": "2024-01-15T10:00:00Z",
+      "tx_hash": "0xabcd...",
+      "reason": "Initial deployment"
+    },
+    {
+      "address": "0x5678...",
+      "set_at": "2024-02-20T14:30:00Z",
+      "tx_hash": "0xef01...",
+      "reason": "Key rotation"
+    }
+  ]
+}
+```
+
+## Monitoring
+
+Since the function doesn't emit an event, monitor CRE address changes by:
+
+1. **Transaction Monitoring**: Track transactions calling `setCREAddress`
+2. **Periodic Checks**: Regularly query `creAddress()` to detect changes
+3. **Block Explorer**: Subscribe to contract transactions on BaseScan
+
+### Example Monitoring Script
+
+```javascript
+const expectedCRE = process.env.EXPECTED_CRE_ADDRESS;
+
+setInterval(async () => {
+  const currentCRE = await contract.creAddress();
+  
+  if (currentCRE.toLowerCase() !== expectedCRE.toLowerCase()) {
+    console.error('ALERT: CRE address mismatch!');
+    console.error('Expected:', expectedCRE);
+    console.error('Actual:', currentCRE);
+    // Send alert notification
+  }
+}, 60000); // Check every minute
+```
+
+## Emergency Procedures
+
+If the CRE private key is compromised:
+
+1. **Immediate Action**: Call `setCREAddress` with a new, secure address
+2. **Revoke Access**: The old address is immediately unauthorized
+3. **Update Infrastructure**: Deploy new CRE service with the new credentials
+4. **Audit**: Review all transactions from the compromised address
+
+```javascript
+// Emergency CRE address rotation
+const emergencyNewAddress = '0x...'; // Pre-generated secure address
+
+await contract.setCREAddress(emergencyNewAddress);
+console.log('Emergency rotation complete');
+```
+
+## Integration Checklist
+
+When updating the CRE address:
+
+- [ ] Verify new address is correct
+- [ ] Test new address on testnet
+- [ ] Call `setCREAddress` from owner account
+- [ ] Verify transaction confirmed
+- [ ] Query `creAddress()` to confirm update
+- [ ] Update CRE service environment variables
+- [ ] Restart CRE service
+- [ ] Test `executePayout` from new address
+- [ ] Document the change
+- [ ] Update monitoring systems

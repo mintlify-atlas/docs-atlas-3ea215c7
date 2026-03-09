@@ -1,0 +1,573 @@
+---
+title: Wallet Connection
+description: Integrate Coinbase OnchainKit for seamless wallet connectivity
+---
+
+## Overview
+
+AridGuard uses **Coinbase OnchainKit** to provide a seamless wallet connection experience. OnchainKit offers:
+
+- Smart Wallet support (no seed phrases)
+- Traditional wallet compatibility (MetaMask, WalletConnect)
+- Built-in identity components (avatars, names, addresses)
+- Optimized for Base blockchain
+
+<Note>
+  OnchainKit is the recommended way to integrate with Base applications. It provides the best user experience and lowest friction for onboarding.
+</Note>
+
+## Installation
+
+Install the required packages:
+
+```bash
+npm install @coinbase/onchainkit wagmi viem @tanstack/react-query
+```
+
+**Package purposes:**
+
+- `@coinbase/onchainkit`: Wallet UI components and utilities
+- `wagmi`: React hooks for Ethereum interactions
+- `viem`: TypeScript Ethereum library
+- `@tanstack/react-query`: State management for async data
+
+## Provider Setup
+
+Wrap your application with the necessary providers:
+
+```typescript
+// app/providers.tsx
+"use client";
+
+import { ReactNode } from 'react';
+import { OnchainKitProvider } from '@coinbase/onchainkit/OnchainKitProvider';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { WagmiProvider } from 'wagmi';
+import { baseSepolia } from 'wagmi/chains';
+import { http, createConfig } from 'wagmi';
+
+// Create wagmi config
+const wagmiConfig = createConfig({
+  chains: [baseSepolia],
+  transports: {
+    [baseSepolia.id]: http(),
+  },
+});
+
+// Create query client
+const queryClient = new QueryClient();
+
+interface ProvidersProps {
+  children: ReactNode;
+}
+
+export function Providers({ children }: ProvidersProps) {
+  return (
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <OnchainKitProvider
+          apiKey={process.env.NEXT_PUBLIC_ONCHAINKIT_API_KEY}
+          chain={baseSepolia}
+        >
+          {children}
+        </OnchainKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
+```
+
+**Environment Variables:**
+
+```bash
+# .env.local
+NEXT_PUBLIC_ONCHAINKIT_API_KEY=your_onchainkit_api_key
+```
+
+Get your API key from [Coinbase Developer Platform](https://portal.cdp.coinbase.com/).
+
+### Root Layout Integration
+
+```typescript
+// app/layout.tsx
+import { Providers } from './providers';
+import '@coinbase/onchainkit/styles.css';
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="en">
+      <body>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+<Tip>
+  Import OnchainKit CSS in your root layout to ensure all components are styled correctly.
+</Tip>
+
+## Basic Wallet Connection
+
+Implement a simple connect button:
+
+```typescript
+"use client";
+
+import { ConnectWallet, Wallet } from '@coinbase/onchainkit/wallet';
+import { useAccount } from 'wagmi';
+
+export default function WalletButton() {
+  const { isConnected, address } = useAccount();
+
+  return (
+    <div>
+      {isConnected ? (
+        <p>Connected: {address}</p>
+      ) : (
+        <Wallet>
+          <ConnectWallet>
+            Connect Wallet
+          </ConnectWallet>
+        </Wallet>
+      )}
+    </div>
+  );
+}
+```
+
+## Full Wallet Component (AridGuard Implementation)
+
+Here's the complete wallet component used in AridGuard:
+
+```typescript
+"use client";
+
+import { 
+  Wallet, 
+  WalletDropdown, 
+  WalletDropdownLink, 
+  WalletDropdownDisconnect 
+} from '@coinbase/onchainkit/wallet';
+import { ConnectWallet } from '@coinbase/onchainkit/wallet';
+import { 
+  Address, 
+  Avatar, 
+  Name, 
+  Identity 
+} from '@coinbase/onchainkit/identity';
+
+export function WalletConnection() {
+  return (
+    <div className="organic-card p-1">
+      <Wallet>
+        <ConnectWallet className="bg-amber-100 hover:bg-amber-200 text-amber-900 font-semibold px-6 py-2 rounded-full transition-all">
+          <Avatar className="h-6 w-6" />
+          <Name />
+        </ConnectWallet>
+        <WalletDropdown>
+          <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+            <Avatar />
+            <Name />
+            <Address />
+          </Identity>
+          <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+            Wallet
+          </WalletDropdownLink>
+          <WalletDropdownDisconnect />
+        </WalletDropdown>
+      </Wallet>
+    </div>
+  );
+}
+```
+
+### Component Breakdown
+
+<Steps>
+  <Step title="Wallet Wrapper">
+    The `<Wallet>` component wraps all wallet-related UI and manages state:
+    
+    ```typescript
+    <Wallet>
+      {/* Wallet UI components */}
+    </Wallet>
+    ```
+  </Step>
+  
+  <Step title="Connect Button">
+    `<ConnectWallet>` displays the connection button with optional children:
+    
+    ```typescript
+    <ConnectWallet className="custom-styles">
+      <Avatar className="h-6 w-6" /> {/* User avatar */}
+      <Name />                          {/* ENS name or shortened address */}
+    </ConnectWallet>
+    ```
+  </Step>
+  
+  <Step title="Wallet Dropdown">
+    `<WalletDropdown>` shows when user clicks their connected wallet:
+    
+    ```typescript
+    <WalletDropdown>
+      {/* Dropdown content */}
+    </WalletDropdown>
+    ```
+  </Step>
+  
+  <Step title="Identity Display">
+    `<Identity>` shows complete user info with copy functionality:
+    
+    ```typescript
+    <Identity className="px-4 pt-3 pb-2" hasCopyAddressOnClick>
+      <Avatar />  {/* Profile picture */}
+      <Name />    {/* ENS name */}
+      <Address /> {/* Full address */}
+    </Identity>
+    ```
+  </Step>
+  
+  <Step title="Dropdown Actions">
+    Add links and actions to the dropdown:
+    
+    ```typescript
+    <WalletDropdownLink icon="wallet" href="https://keys.coinbase.com">
+      Wallet
+    </WalletDropdownLink>
+    <WalletDropdownDisconnect /> {/* Disconnect button */}
+    ```
+  </Step>
+</Steps>
+
+## Checking Connection Status
+
+Use Wagmi hooks to check wallet state:
+
+```typescript
+import { useAccount } from 'wagmi';
+
+export default function StatusCheck() {
+  const { 
+    address,        // User's wallet address
+    isConnected,    // Connection status
+    isConnecting,   // Connecting in progress
+    isDisconnected  // Not connected
+  } = useAccount();
+
+  if (isConnecting) return <div>Connecting...</div>;
+  if (isDisconnected) return <div>Please connect wallet</div>;
+  if (isConnected) return <div>Connected as {address}</div>;
+}
+```
+
+## Conditional Rendering Based on Connection
+
+Show different UI based on wallet status:
+
+```typescript
+"use client";
+
+import { useState, useEffect } from 'react';
+import { useAccount } from 'wagmi';
+import { Wallet, ConnectWallet } from '@coinbase/onchainkit/wallet';
+
+export default function ConditionalUI() {
+  const { isConnected } = useAccount();
+  const [mounted, setMounted] = useState(false);
+
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="animate-pulse bg-amber-200/50 h-12 w-full rounded-xl" />
+    );
+  }
+
+  return (
+    <div>
+      {isConnected ? (
+        <div>
+          <h2>Welcome!</h2>
+          <button onClick={handlePurchase}>
+            Purchase Policy
+          </button>
+        </div>
+      ) : (
+        <div className="p-6 bg-amber-50 border border-amber-100 rounded-2xl text-center">
+          <p className="text-amber-900/80 text-sm mb-4">
+            Connect your wallet to get started
+          </p>
+          <Wallet>
+            <ConnectWallet className="w-full bg-amber-800 text-amber-50 py-3 rounded-xl justify-center font-medium">
+              Connect Wallet
+            </ConnectWallet>
+          </Wallet>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+<Warning>
+  Always use the `mounted` pattern to prevent hydration mismatches in Next.js. The server doesn't know wallet connection status, so initial render should match server output.
+</Warning>
+
+## Network Configuration
+
+Ensure users are on the correct network:
+
+```typescript
+import { useAccount, useSwitchChain } from 'wagmi';
+import { baseSepolia } from 'wagmi/chains';
+
+export function NetworkCheck() {
+  const { chain } = useAccount();
+  const { switchChain } = useSwitchChain();
+
+  if (chain?.id !== baseSepolia.id) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <p className="text-red-800 font-semibold">Wrong Network</p>
+        <p className="text-red-700 text-sm mt-1">
+          Please switch to Base Sepolia
+        </p>
+        <button
+          onClick={() => switchChain({ chainId: baseSepolia.id })}
+          className="mt-3 bg-red-600 text-white px-4 py-2 rounded"
+        >
+          Switch to Base Sepolia
+        </button>
+      </div>
+    );
+  }
+
+  return null; // Correct network
+}
+```
+
+## Identity Components
+
+OnchainKit provides rich identity components:
+
+### Avatar
+
+Display user's profile picture:
+
+```typescript
+import { Avatar } from '@coinbase/onchainkit/identity';
+
+<Avatar 
+  address="0x..."
+  className="h-10 w-10"
+/>
+```
+
+### Name
+
+Show ENS name or shortened address:
+
+```typescript
+import { Name } from '@coinbase/onchainkit/identity';
+
+<Name 
+  address="0x..."
+  className="font-semibold"
+/>
+```
+
+### Address
+
+Display full or shortened address:
+
+```typescript
+import { Address } from '@coinbase/onchainkit/identity';
+
+<Address 
+  address="0x..."
+  className="text-sm text-gray-600"
+/>
+```
+
+### Complete Identity Card
+
+```typescript
+import { Identity, Avatar, Name, Address } from '@coinbase/onchainkit/identity';
+import { useAccount } from 'wagmi';
+
+export function IdentityCard() {
+  const { address } = useAccount();
+
+  return (
+    <Identity 
+      address={address}
+      className="bg-white rounded-lg p-4 shadow"
+      hasCopyAddressOnClick
+    >
+      <Avatar className="h-16 w-16" />
+      <div className="ml-3">
+        <Name className="text-lg font-bold" />
+        <Address className="text-sm text-gray-500" />
+      </div>
+    </Identity>
+  );
+}
+```
+
+## Wallet Options Configuration
+
+Customize which wallets appear in the connection modal:
+
+```typescript
+import { 
+  Wallet, 
+  ConnectWallet,
+  WalletDefault,
+  WalletDropdown
+} from '@coinbase/onchainkit/wallet';
+
+export function CustomWalletOptions() {
+  return (
+    <Wallet>
+      <ConnectWallet
+        withWalletAggregator // Show all available wallets
+      >
+        <Avatar />
+        <Name />
+      </ConnectWallet>
+      <WalletDropdown>
+        <WalletDefault /> {/* Default dropdown content */}
+      </WalletDropdown>
+    </Wallet>
+  );
+}
+```
+
+## Smart Wallet Benefits
+
+Coinbase Smart Wallet provides several advantages:
+
+<CardGroup cols={2}>
+  <Card title="No Seed Phrases" icon="key">
+    Users don't need to manage recovery phrases
+  </Card>
+  <Card title="Social Recovery" icon="users">
+    Recover wallet access through trusted contacts
+  </Card>
+  <Card title="Gasless Transactions" icon="gas-pump">
+    App can sponsor gas fees for users
+  </Card>
+  <Card title="Batch Transactions" icon="layer-group">
+    Multiple operations in single transaction
+  </Card>
+</CardGroup>
+
+### Sponsoring Gas (Paymaster)
+
+Allow users to transact without holding ETH:
+
+```typescript
+import { useWriteContract } from 'wagmi';
+import { ARIDGUARD_ADDRESS, ARIDGUARD_ABI } from '../utils/constants';
+import { parseEther } from 'viem';
+
+export function SponsoredPurchase() {
+  const { writeContract } = useWriteContract();
+
+  const handlePurchase = () => {
+    writeContract({
+      address: ARIDGUARD_ADDRESS,
+      abi: ARIDGUARD_ABI,
+      functionName: 'purchasePolicy',
+      args: [5000, 360000],
+      value: parseEther("0.0001"),
+      // Paymaster configuration
+      paymaster: {
+        type: 'paymaster',
+        url: process.env.NEXT_PUBLIC_PAYMASTER_URL,
+      },
+    });
+  };
+
+  return <button onClick={handlePurchase}>Purchase (Gas Free!)</button>;
+}
+```
+
+<Note>
+  Gas sponsorship requires a Paymaster service. Coinbase provides paymaster infrastructure for Base applications.
+</Note>
+
+## Error Handling
+
+Handle common wallet errors:
+
+```typescript
+import { useAccount, useConnect } from 'wagmi';
+import { useState } from 'react';
+
+export function RobustWalletConnect() {
+  const { isConnected } = useAccount();
+  const { connect, connectors, error, isPending } = useConnect();
+  const [customError, setCustomError] = useState<string>('');
+
+  const handleConnect = async () => {
+    try {
+      setCustomError('');
+      const connector = connectors[0]; // Coinbase Wallet
+      connect({ connector });
+    } catch (err) {
+      setCustomError('Failed to connect wallet. Please try again.');
+      console.error(err);
+    }
+  };
+
+  return (
+    <div>
+      {error && (
+        <div className="bg-red-50 text-red-800 p-3 rounded mb-4">
+          {error.message}
+        </div>
+      )}
+      {customError && (
+        <div className="bg-red-50 text-red-800 p-3 rounded mb-4">
+          {customError}
+        </div>
+      )}
+      <button 
+        onClick={handleConnect}
+        disabled={isPending}
+      >
+        {isPending ? 'Connecting...' : 'Connect Wallet'}
+      </button>
+    </div>
+  );
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Policy Purchase"
+    icon="file-contract"
+    href="/integration/policy-purchase"
+  >
+    Interact with the AridGuard smart contract
+  </Card>
+  <Card
+    title="Monitoring Policies"
+    icon="chart-line"
+    href="/integration/monitoring-policies"
+  >
+    Track policy status and events
+  </Card>
+</CardGroup>

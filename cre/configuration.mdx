@@ -1,0 +1,202 @@
+---
+title: "Configuration"
+description: "Configure the AridGuard CRE workflow parameters, API endpoints, and blockchain settings"
+---
+
+## Configuration Files
+
+The CRE workflow requires three configuration files:
+
+1. **config.json**: Main workflow parameters
+2. **secrets.yaml**: API keys and sensitive data
+3. **workflow.yaml**: Workflow metadata and file paths
+
+## config.json Structure
+
+The main configuration file defines all runtime parameters:
+
+```json
+{
+  "schedule": "* * * * *",
+  "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  "thresholdRainfall": 10,
+  "evm": {
+    "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+    "contractAddress": "0x23d747751abF06b68539f0684abe21E2A76901fc"
+  }
+}
+```
+
+### Configuration Schema
+
+The workflow validates configuration using Zod schema:
+
+```typescript
+const configSchema = z.object({
+  schedule: z.string(),
+  weatherApiUrl: z.string(),
+  thresholdRainfall: z.number(),
+  evm: z.object({
+    chainSelectorName: z.string(),
+    contractAddress: z.string()
+  }).optional()
+});
+
+type Config = z.infer<typeof configSchema>;
+```
+
+## Configuration Parameters
+
+### schedule
+
+<ParamField path="schedule" type="string" required>
+  Cron expression defining workflow execution frequency.
+  
+  **Example**: `"* * * * *"` (every minute)
+  
+  **Format**: Standard cron syntax (minute hour day month weekday)
+</ParamField>
+
+### weatherApiUrl
+
+<ParamField path="weatherApiUrl" type="string" required>
+  OpenWeather API endpoint with location and units.
+  
+  **Example**: `"https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric"`
+  
+  **Note**: API key is appended automatically from secrets
+</ParamField>
+
+### thresholdRainfall
+
+<ParamField path="thresholdRainfall" type="number" required>
+  Rainfall threshold in millimeters. When median rainfall falls below this value, drought condition is triggered.
+  
+  **Example**: `10` (10mm per hour)
+  
+  **Default**: Adjust based on regional climate patterns
+</ParamField>
+
+### evm.chainSelectorName
+
+<ParamField path="evm.chainSelectorName" type="string" optional>
+  Chainlink chain selector name for the target EVM network.
+  
+  **Example**: `"ethereum-testnet-sepolia-base-1"` (Base Sepolia)
+  
+  **Default**: `"base-sepolia"` if not specified
+</ParamField>
+
+### evm.contractAddress
+
+<ParamField path="evm.contractAddress" type="string" optional>
+  Address of the deployed insurance smart contract.
+  
+  **Example**: `"0x23d747751abF06b68539f0684abe21E2A76901fc"`
+  
+  **Default**: Uses fallback address if not specified
+</ParamField>
+
+## secrets.yaml Structure
+
+Secrets are managed separately from configuration:
+
+```yaml
+secretsNames:
+  OPENWEATHER_API_KEY:
+    - CRE_OPENWEATHER_API_KEY
+```
+
+<Warning>
+  Never commit secrets.yaml to version control. Use environment variables or secure secret management.
+</Warning>
+
+### Secret Retrieval
+
+The workflow retrieves secrets at runtime:
+
+```typescript
+const secretResponse = runtime.getSecret({ id: "OPENWEATHER_API_KEY" }).result();
+const apiKey = secretResponse.value;
+```
+
+## workflow.yaml Structure
+
+Defines workflow metadata for local simulation:
+
+```yaml
+local-simulation:
+  user-workflow:
+    workflow-name: "aridguard-local"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.json"
+    secrets-path: "./secrets.yaml"
+```
+
+## Environment-Specific Configuration
+
+<Tabs>
+  <Tab title="Development">
+    ```json
+    {
+      "schedule": "*/5 * * * *",
+      "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=TestCity&units=metric",
+      "thresholdRainfall": 5,
+      "evm": {
+        "chainSelectorName": "ethereum-testnet-sepolia-base-1",
+        "contractAddress": "0x..."
+      }
+    }
+    ```
+    Run checks every 5 minutes with lower threshold for testing.
+  </Tab>
+  
+  <Tab title="Production">
+    ```json
+    {
+      "schedule": "0 * * * *",
+      "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+      "thresholdRainfall": 10,
+      "evm": {
+        "chainSelectorName": "base-mainnet",
+        "contractAddress": "0x..."
+      }
+    }
+    ```
+    Run checks hourly with production thresholds and mainnet contract.
+  </Tab>
+</Tabs>
+
+## Configuration Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Schedule Frequency" icon="clock">
+    Balance between responsiveness and API rate limits. Hourly checks are typical for weather monitoring.
+  </Card>
+  
+  <Card title="Threshold Tuning" icon="sliders">
+    Set thresholds based on historical climate data and insurance policy terms.
+  </Card>
+  
+  <Card title="Multiple Locations" icon="map">
+    Deploy separate workflow instances for different geographic regions.
+  </Card>
+  
+  <Card title="Network Selection" icon="network-wired">
+    Use testnets for development, mainnet for production. Ensure contract is deployed to target network.
+  </Card>
+</CardGroup>
+
+## Updating Configuration
+
+Configuration changes require workflow redeployment. For production updates:
+
+1. Test configuration changes in local simulation
+2. Deploy to testnet and verify behavior
+3. Update production configuration
+4. Redeploy workflow to oracle network
+
+<Tip>
+  Use version control to track configuration changes and maintain environment-specific configs in separate branches or files.
+</Tip>

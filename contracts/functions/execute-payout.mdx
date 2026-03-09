@@ -1,0 +1,288 @@
+---
+title: executePayout
+description: Execute insurance payout for a policy (CRE only)
+---
+
+The `executePayout` function triggers an insurance payout for a specific policy. This function can only be called by the authorized Climate Risk Engine (CRE) address.
+
+## Function Signature
+
+```solidity
+function executePayout(bytes32 policyId) external onlyCRE
+```
+
+## Access Control
+
+<Warning>
+  This function is protected by the `onlyCRE` modifier and can only be called by the authorized CRE address.
+</Warning>
+
+```solidity
+modifier onlyCRE() {
+    require(msg.sender == creAddress, "Only CRE can execute this");
+    _;
+}
+```
+
+## Parameters
+
+<ParamField path="policyId" type="bytes32" required>
+  The unique identifier of the policy to pay out. This is the same ID emitted in the `PolicyPurchased` event.
+</ParamField>
+
+## Implementation
+
+```solidity
+function executePayout(bytes32 policyId) external onlyCRE {
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    
+    policy.isActive = false; // Prevents double payout
+    
+    // Payout is 10x the premium
+    uint256 payoutAmount = policy.premiumPaid * 10;
+    
+    require(address(this).balance >= payoutAmount, "Insufficient contract balance");
+    
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+    
+    emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+}
+```
+
+## Payout Calculation
+
+The payout amount is calculated as:
+
+```solidity
+uint256 payoutAmount = policy.premiumPaid * 10;
+```
+
+<ResponseField name="Payout Multiplier" type="10x">
+  Farmers receive 10 times their premium paid as the payout amount
+</ResponseField>
+
+### Example
+
+- **Premium Paid**: 0.01 ETH
+- **Payout Amount**: 0.1 ETH (10x premium)
+
+## Return Values
+
+This function does not return a value but emits a `PayoutExecuted` event upon success.
+
+<ResponseField name="PayoutExecuted" type="event">
+  Event containing the policy ID, farmer address, and payout amount
+</ResponseField>
+
+## Event Emitted
+
+```solidity
+event PayoutExecuted(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    uint256 payoutAmount
+);
+```
+
+<ResponseField name="policyId" type="bytes32" required>
+  ID of the policy that received the payout
+</ResponseField>
+
+<ResponseField name="farmer" type="address" required>
+  Address of the farmer receiving the payout
+</ResponseField>
+
+<ResponseField name="payoutAmount" type="uint256" required>
+  Amount transferred to the farmer in wei (10x premium)
+</ResponseField>
+
+## Requirements
+
+<ResponseField name="CRE Authorization" type="requirement">
+  Caller must be the authorized CRE address, otherwise reverts with "Only CRE can execute this"
+</ResponseField>
+
+<ResponseField name="Active Policy" type="requirement">
+  Policy must be active (isActive = true), otherwise reverts with "Policy is not active"
+</ResponseField>
+
+<ResponseField name="Sufficient Balance" type="requirement">
+  Contract must have enough ETH balance to cover the payout, otherwise reverts with "Insufficient contract balance"
+</ResponseField>
+
+<ResponseField name="Transfer Success" type="requirement">
+  ETH transfer to farmer must succeed, otherwise reverts with "Payout transfer failed"
+</ResponseField>
+
+## Usage Example
+
+Using ethers.js (from CRE backend):
+
+```javascript
+import { ethers } from 'ethers';
+
+// Connect with CRE wallet
+const provider = new ethers.JsonRpcProvider('https://sepolia.base.org');
+const creSigner = new ethers.Wallet(process.env.CRE_PRIVATE_KEY, provider);
+const contract = new ethers.Contract(contractAddress, abi, creSigner);
+
+// Execute payout for a policy
+const policyId = '0x1234...';
+
+try {
+  const tx = await contract.executePayout(policyId);
+  console.log('Payout transaction:', tx.hash);
+  
+  const receipt = await tx.wait();
+  console.log('Payout confirmed in block:', receipt.blockNumber);
+  
+  // Extract payout details from event
+  const event = receipt.logs.find(log => log.eventName === 'PayoutExecuted');
+  console.log('Payout amount:', ethers.formatEther(event.args.payoutAmount));
+} catch (error) {
+  console.error('Payout failed:', error.message);
+}
+```
+
+Using viem:
+
+```typescript
+import { createWalletClient, http } from 'viem';
+import { baseSepolia } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const account = privateKeyToAccount(process.env.CRE_PRIVATE_KEY);
+
+const client = createWalletClient({
+  account,
+  chain: baseSepolia,
+  transport: http()
+});
+
+const hash = await client.writeContract({
+  address: contractAddress,
+  abi: aridGuardAbi,
+  functionName: 'executePayout',
+  args: [policyId],
+});
+
+console.log('Transaction hash:', hash);
+```
+
+## State Changes
+
+1. Sets `policy.isActive = false` to prevent double payouts
+2. Transfers `policy.premiumPaid * 10` ETH to `policy.farmer`
+3. Decreases contract ETH balance by payout amount
+
+## Security Features
+
+### Double Payout Prevention
+
+The function prevents double payouts by setting `isActive` to false before transferring funds:
+
+```solidity
+require(policy.isActive, "Policy is not active");
+policy.isActive = false; // Prevents double payout
+```
+
+<Note>
+  Once a payout is executed, the policy cannot receive another payout. This is a permanent state change.
+</Note>
+
+### Checks-Effects-Interactions Pattern
+
+The function follows the CEI pattern to prevent reentrancy:
+
+1. **Checks**: Verify policy is active and balance is sufficient
+2. **Effects**: Update `isActive` state
+3. **Interactions**: Transfer ETH to farmer
+
+### Low-Level Call
+
+ETH is transferred using a low-level `call` with success verification:
+
+```solidity
+(bool success, ) = policy.farmer.call{value: payoutAmount}("");
+require(success, "Payout transfer failed");
+```
+
+This approach:
+- Forwards all available gas to the recipient
+- Allows contracts to receive funds via fallback/receive functions
+- Properly handles transfer failures
+
+## Gas Considerations
+
+- **Estimated Gas**: ~60,000 - 80,000 gas
+- **ETH Transfer**: 21,000 - 35,000 gas depending on recipient
+
+## Error Handling
+
+<ResponseField name="Only CRE can execute this" type="error">
+  Thrown when caller is not the authorized CRE address
+</ResponseField>
+
+<ResponseField name="Policy is not active" type="error">
+  Thrown when the policy has already been paid out or doesn't exist
+</ResponseField>
+
+<ResponseField name="Insufficient contract balance" type="error">
+  Thrown when the contract doesn't have enough ETH to cover the payout
+</ResponseField>
+
+<ResponseField name="Payout transfer failed" type="error">
+  Thrown when the ETH transfer to the farmer fails
+</ResponseField>
+
+## CRE Integration
+
+The CRE service should:
+
+1. Monitor drought conditions for all active policies
+2. When drought criteria are met, call `executePayout` with the policy ID
+3. Listen for `PayoutExecuted` events to confirm successful payouts
+4. Handle errors and retry failed transactions
+
+### Example CRE Workflow
+
+```javascript
+// Pseudocode for CRE service
+async function processDroughtClaims() {
+  const activePolicies = await getActivePolicies();
+  
+  for (const policy of activePolicies) {
+    const droughtLevel = await checkDroughtConditions(policy.lat, policy.long);
+    
+    if (droughtLevel >= PAYOUT_THRESHOLD) {
+      try {
+        await contract.executePayout(policy.policyId);
+        console.log(`Payout executed for policy ${policy.policyId}`);
+      } catch (error) {
+        console.error(`Failed to execute payout for ${policy.policyId}:`, error);
+        // Queue for retry
+      }
+    }
+  }
+}
+```
+
+## Monitoring
+
+Listen for `PayoutExecuted` events to track payouts:
+
+```javascript
+contract.on('PayoutExecuted', (policyId, farmer, payoutAmount, event) => {
+  console.log('Payout executed:', {
+    policyId,
+    farmer,
+    amount: ethers.formatEther(payoutAmount),
+    txHash: event.log.transactionHash,
+    blockNumber: event.log.blockNumber
+  });
+  
+  // Update database, send notifications, etc.
+});
+```

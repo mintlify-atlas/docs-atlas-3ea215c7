@@ -1,80 +1,277 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with AridGuard in minutes
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Before you begin, make sure you have:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Web3 Wallet" icon="wallet">
+    A Coinbase Smart Wallet or any EVM-compatible wallet
+  </Card>
+  <Card title="Testnet ETH" icon="coins">
+    Base Sepolia ETH for transaction fees and premiums
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Tip>
+  Don't have testnet ETH? Get some from the [Base Sepolia Faucet](https://www.coinbase.com/faucets/base-ethereum-sepolia-faucet) or bridge from Ethereum Sepolia.
+</Tip>
+
+## Purchase Your First Policy
+
+Follow these steps to secure drought protection for your farm:
+
+<Steps>
+  <Step title="Visit the AridGuard App">
+    Navigate to [https://aridguard.replit.app](https://aridguard.replit.app) in your web browser.
+    
+    The landing page displays the current active region (Kenya, Rift Valley) and policy details.
+  </Step>
+  
+  <Step title="Connect Your Wallet">
+    Click the **Connect Wallet** button in the top-right corner.
+    
+    <img src="/images/connect-wallet.png" alt="Connect Wallet" />
+    
+    Choose your preferred wallet option:
+    - **Coinbase Smart Wallet** (recommended for new users)
+    - **MetaMask** or other browser wallets
+    - **WalletConnect** for mobile wallets
+    
+    Make sure you're connected to the **Base Sepolia** network.
+  </Step>
+  
+  <Step title="Review Policy Details">
+    Before purchasing, review the policy parameters:
+    
+    - **Premium**: 0.0001 ETH (approximately $0.25 USD)
+    - **Coverage Amount**: 0.001 ETH (10x premium)
+    - **Trigger Threshold**: < 10mm rainfall per month
+    - **Covered Location**: Kenya, Rift Valley (coordinates: 0.05°, 36.0°)
+    
+    <Note>
+      For this demo, coordinates are pre-configured. Production versions would allow custom location selection.
+    </Note>
+  </Step>
+  
+  <Step title="Purchase the Policy">
+    Click the **Purchase Policy** button.
+    
+    Your wallet will prompt you to confirm the transaction:
+    
+    ```typescript
+    // Transaction details
+    {
+      to: "0x23d747751abF06b68539f0684abe21E2A76901fc",
+      function: "purchasePolicy(int256,int256)",
+      args: [5000, 360000], // Coordinates scaled by 100
+      value: "0.0001 ETH"
+    }
+    ```
+    
+    Confirm the transaction in your wallet.
+  </Step>
+  
+  <Step title="Wait for Confirmation">
+    The app will display the transaction status:
+    - **"Confirm in Wallet..."** - Approve the transaction
+    - **"Confirming on Base..."** - Transaction submitted to blockchain
+    - **"Policy Active"** - Transaction confirmed!
+    
+    Confirmation typically takes 2-5 seconds on Base.
+  </Step>
+  
+  <Step title="Policy Activated">
+    Once confirmed, you'll see a success message:
+    
+    <img src="/images/policy-active.png" alt="Policy Active" />
+    
+    Your policy is now active and the CRE workflow is monitoring rainfall for your coordinates.
+    
+    Click **"View on BaseScan"** to see your transaction on the block explorer.
+  </Step>
+</Steps>
+
+## What Happens Next?
+
+### Continuous Monitoring
+
+The Chainlink CRE workflow now monitors your policy:
+
+```typescript
+// CRE runs on a scheduled cron trigger
+const config = {
+  schedule: "* * * * *", // Every minute
+  weatherApiUrl: "https://api.openweathermap.org/data/2.5/weather?q=Nairobi&units=metric",
+  thresholdRainfall: 10
+}
+```
+
+Every minute, the workflow:
+1. Fetches current rainfall data from OpenWeather API
+2. Aggregates data using median consensus
+3. Checks if rainfall < 10mm threshold
+4. Executes payout if drought condition is met
+
+<Tip>
+  In production, the cron schedule would be optimized (e.g., hourly or daily) to balance monitoring frequency with operational costs.
+</Tip>
+
+### Automatic Payout
+
+If drought conditions are detected, you'll receive an automatic payout:
+
+<CodeGroup>
+```typescript CRE Detection
+if (medianRainfall < runtime.config.thresholdRainfall) {
+  runtime.log(`ALERT: Drought detected! Rainfall ${medianRainfall}mm`);
+  
+  // Execute payout transaction
+  const policyId = readActivePolicyIds()[0];
+  executePayoutOnChain(policyId);
+}
+```
+
+```solidity Smart Contract
+function executePayout(bytes32 policyId) external onlyCRE {
+    Policy storage policy = policies[policyId];
+    require(policy.isActive, "Policy is not active");
+    
+    policy.isActive = false;
+    uint256 payoutAmount = policy.premiumPaid * 10; // 10x payout
+    
+    (bool success, ) = policy.farmer.call{value: payoutAmount}("");
+    require(success, "Payout transfer failed");
+    
+    emit PayoutExecuted(policyId, policy.farmer, payoutAmount);
+}
+```
+</CodeGroup>
+
+The payout (10x your premium) is transferred directly to your wallet within seconds of drought detection.
+
+## Viewing Your Policy
+
+### On-Chain Verification
+
+You can verify your policy on BaseScan:
+
+1. Copy your transaction hash from the app
+2. Visit [BaseScan Sepolia](https://sepolia.basescan.org/)
+3. Search for your transaction
+4. View the `PolicyPurchased` event:
+
+```solidity
+event PolicyPurchased(
+    bytes32 indexed policyId,
+    address indexed farmer,
+    int256 lat,
+    int256 long,
+    uint256 premium
+);
+```
+
+### Policy Details
+
+Your policy ID is generated from:
+
+```solidity
+bytes32 policyId = keccak256(
+    abi.encodePacked(
+        msg.sender,      // Your wallet address
+        lat,             // Latitude (scaled)
+        long,            // Longitude (scaled)
+        block.timestamp  // Purchase timestamp
+    )
+);
+```
+
+This ensures each policy has a unique, deterministic identifier.
+
+## Testing Payout Triggers
+
+<Warning>
+  The CRE workflow monitors live weather data. Payouts only trigger when actual drought conditions occur in the monitored region.
+</Warning>
+
+For development and testing purposes, you can:
+
+1. **Modify the threshold**: Lower the rainfall threshold in `config.json`
+2. **Use mock data**: Point to a controlled weather API endpoint
+3. **Simulate conditions**: Run the CRE workflow locally with test configurations
+
+See [CRE Workflow](/architecture/cre-workflow) for detailed testing instructions.
+
+## Troubleshooting
+
+<Accordion title="Transaction failed or reverted">
+  **Common causes:**
+  - Insufficient testnet ETH for gas fees
+  - Not connected to Base Sepolia network
+  - Premium amount is 0 (must be > 0)
+  
+  **Solutions:**
+  - Get more testnet ETH from the faucet
+  - Switch to Base Sepolia in your wallet
+  - Check that you're sending 0.0001 ETH with the transaction
+</Accordion>
+
+<Accordion title="Wallet won't connect">
+  **Common causes:**
+  - Browser wallet extension not installed
+  - Wallet locked or logged out
+  - Network connection issues
+  
+  **Solutions:**
+  - Install Coinbase Wallet or MetaMask
+  - Unlock your wallet and refresh the page
+  - Check your internet connection
+</Accordion>
+
+<Accordion title="Policy not appearing as active">
+  **Common causes:**
+  - Transaction still pending
+  - Transaction failed but error not displayed
+  - Wrong network or contract address
+  
+  **Solutions:**
+  - Wait 10-20 seconds for confirmation
+  - Check transaction status on BaseScan
+  - Verify you're on Base Sepolia (chain ID: 84532)
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="How It Works"
+    icon="gears"
+    href="/how-it-works"
+  >
+    Understand the parametric insurance model
+  </Card>
+  <Card
+    title="Integration Guide"
+    icon="code"
+    href="/integration/wallet-connection"
+  >
+    Build your own interface to AridGuard
+  </Card>
+  <Card
+    title="Smart Contract API"
+    icon="file-contract"
+    href="/architecture/smart-contracts"
+  >
+    Explore contract functions and events
+  </Card>
+  <Card
+    title="CRE Workflow"
+    icon="arrows-spin"
+    href="/architecture/cre-workflow"
+  >
+    Deep dive into off-chain monitoring
+  </Card>
+</CardGroup>

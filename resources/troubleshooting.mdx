@@ -1,0 +1,426 @@
+---
+title: 'Troubleshooting'
+description: 'Common issues and solutions for AridGuard deployment'
+icon: 'wrench'
+---
+
+This guide helps you diagnose and resolve common issues when deploying and operating AridGuard.
+
+## Smart Contract Issues
+
+### Contract Deployment Fails
+
+**Symptoms:**
+- Error during `npx hardhat ignition deploy`
+- Transaction reverts or fails
+- "Insufficient funds" error
+
+**Possible causes and solutions:**
+
+<AccordionGroup>
+  <Accordion title="Insufficient gas funds">
+    **Cause:** Your deployment wallet doesn't have enough Base Sepolia ETH for gas fees.
+
+    **Solution:**
+    1. Get testnet ETH from a Base Sepolia faucet
+    2. Bridge ETH from Ethereum Sepolia to Base Sepolia
+    3. Verify your wallet balance:
+       ```bash
+       # Check on BaseScan
+       https://sepolia.basescan.org/address/YOUR_WALLET_ADDRESS
+       ```
+  </Accordion>
+
+  <Accordion title="Invalid private key">
+    **Cause:** The `PRIVATE_KEY` in `contracts/.env` is incorrectly formatted or missing.
+
+    **Solution:**
+    1. Verify the private key format: `0x` prefix followed by 64 hexadecimal characters
+    2. Check that `.env` file exists and is in the correct directory
+    3. Ensure no extra spaces or quotes around the key
+       ```bash
+       # Correct format
+       PRIVATE_KEY=0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+       ```
+  </Accordion>
+
+  <Accordion title="Network configuration error">
+    **Cause:** Hardhat network configuration is incorrect or missing.
+
+    **Solution:**
+    1. Check `hardhat.config.js` has Base Sepolia configured
+    2. Verify the network name matches: `--network base_sepolia`
+    3. Ensure RPC URL is accessible
+  </Accordion>
+</AccordionGroup>
+
+### "Only CRE can execute this" Error
+
+**Symptoms:**
+- CRE workflow runs but payout transactions fail
+- Error message: "Only CRE can execute this"
+- Transactions revert when calling `executePayout()`
+
+**Cause:**
+The wallet address from `CRE_ETH_PRIVATE_KEY` has not been set as the authorized `creAddress` in the AridGuard contract.
+
+**Solution:**
+
+<Steps>
+  <Step title="Get your CRE wallet address">
+    Derive the address from your `CRE_ETH_PRIVATE_KEY`. You can use a tool like:
+    ```bash
+    # Using cast (from Foundry)
+    cast wallet address --private-key $CRE_ETH_PRIVATE_KEY
+    ```
+  </Step>
+
+  <Step title="Set the CRE address in contract">
+    As the contract owner, call `setCREAddress()`:
+    ```javascript
+    // Using Hardhat console
+    const contract = await ethers.getContractAt("AridGuard", "CONTRACT_ADDRESS");
+    await contract.setCREAddress("YOUR_CRE_WALLET_ADDRESS");
+    ```
+  </Step>
+
+  <Step title="Verify the setting">
+    Check that the CRE address is set correctly:
+    ```javascript
+    const creAddress = await contract.creAddress();
+    console.log("CRE Address:", creAddress);
+    ```
+  </Step>
+</Steps>
+
+### Contract Balance Insufficient
+
+**Symptoms:**
+- Error: "Insufficient contract balance"
+- Payout transactions fail even when conditions are met
+- Contract has active policies but cannot pay out
+
+**Cause:**
+The AridGuard contract doesn't have enough ETH to cover the payout (10x the premium).
+
+**Solution:**
+
+```bash
+# Send ETH to the contract address
+# The contract has a receive() function that accepts native ETH
+
+# Method 1: Using a wallet
+# Send ETH directly to the contract address from MetaMask or another wallet
+
+# Method 2: Using Hardhat
+const [signer] = await ethers.getSigners();
+await signer.sendTransaction({
+  to: "CONTRACT_ADDRESS",
+  value: ethers.parseEther("1.0") // Send 1 ETH
+});
+```
+
+<Info>
+  Calculate required balance: `(Number of active policies) × (Max premium) × 10 + (Safety margin)`
+</Info>
+
+## CRE Workflow Issues
+
+### CRE Workflow Not Executing
+
+**Symptoms:**
+- No logs appearing when running `npx ts-node main.ts`
+- Workflow exits immediately
+- No weather data being fetched
+
+**Possible causes and solutions:**
+
+<AccordionGroup>
+  <Accordion title="Missing environment variables">
+    **Cause:** `.env` file is missing or environment variables are not loaded.
+
+    **Solution:**
+    1. Verify `.env` file exists in the `cre` directory
+    2. Check both variables are set:
+       ```bash
+       cat cre/.env
+       # Should show:
+       # CRE_ETH_PRIVATE_KEY=...
+       # CRE_OPENWEATHER_API_KEY=...
+       ```
+    3. Ensure no syntax errors (no spaces around `=`)
+  </Accordion>
+
+  <Accordion title="Config file errors">
+    **Cause:** `config.json` is malformed or has incorrect values.
+
+    **Solution:**
+    1. Validate JSON syntax:
+       ```bash
+       cat config.json | jq .
+       ```
+    2. Verify required fields are present:
+       - `schedule`
+       - `weatherApiUrl`
+       - `thresholdRainfall`
+       - `evm.chainSelectorName`
+       - `evm.contractAddress`
+    3. Check contract address is correct for your deployed contract
+  </Accordion>
+
+  <Accordion title="Dependencies not installed">
+    **Cause:** Required npm packages are missing.
+
+    **Solution:**
+    ```bash
+    cd cre
+    rm -rf node_modules package-lock.json
+    npm install
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### OpenWeather API Errors
+
+**Symptoms:**
+- Error: "HTTP request failed with status: 401"
+- Error: "Invalid API key"
+- No weather data returned
+
+**Solutions:**
+
+<AccordionGroup>
+  <Accordion title="Invalid API key">
+    **Cause:** The `CRE_OPENWEATHER_API_KEY` is incorrect, expired, or not activated.
+
+    **Solution:**
+    1. Log in to your OpenWeather account
+    2. Navigate to API keys section
+    3. Verify the key is active (new keys take ~10 minutes to activate)
+    4. Copy the correct key to your `.env` file
+    5. Test the key:
+       ```bash
+       curl "https://api.openweathermap.org/data/2.5/weather?q=London&appid=YOUR_API_KEY"
+       ```
+  </Accordion>
+
+  <Accordion title="Rate limit exceeded">
+    **Cause:** You've exceeded the API rate limits (60 calls/minute for free tier).
+
+    **Solution:**
+    1. Reduce the cron schedule frequency in `config.json`
+    2. Upgrade to a paid OpenWeather plan for higher limits
+    3. Monitor your API usage in the OpenWeather dashboard
+    4. Consider changing from `"* * * * *"` (every minute) to `"0 * * * *"` (every hour)
+  </Accordion>
+
+  <Accordion title="Invalid location">
+    **Cause:** The location in `weatherApiUrl` doesn't exist or is misspelled.
+
+    **Solution:**
+    1. Test the URL in your browser or with curl
+    2. Use coordinates instead of city names for more precision:
+       ```json
+       "weatherApiUrl": "https://api.openweathermap.org/data/2.5/weather?lat=-1.286389&lon=36.817223&units=metric"
+       ```
+    3. Check OpenWeather documentation for valid parameters
+  </Accordion>
+</AccordionGroup>
+
+### Network Connection Issues
+
+**Symptoms:**
+- Error: "Network not found"
+- Cannot connect to blockchain
+- Timeout errors when reading contract state
+
+**Solutions:**
+
+<AccordionGroup>
+  <Accordion title="Invalid chain selector">
+    **Cause:** The `chainSelectorName` in `config.json` is incorrect.
+
+    **Solution:**
+    1. Verify you're using the correct chain selector name:
+       - Base Sepolia: `"ethereum-testnet-sepolia-base-1"`
+       - Base Mainnet: `"base-mainnet-1"`
+    2. Update `config.json` with the correct value
+    3. Restart the workflow
+  </Accordion>
+
+  <Accordion title="RPC endpoint issues">
+    **Cause:** The RPC endpoint is down or rate-limited.
+
+    **Solution:**
+    1. Check network status on Base's status page
+    2. Use a different RPC provider (Alchemy, Infura, QuickNode)
+    3. Add a custom RPC configuration if needed
+  </Accordion>
+
+  <Accordion title="Contract not deployed">
+    **Cause:** The contract address in `config.json` is incorrect or the contract isn't deployed.
+
+    **Solution:**
+    1. Verify the contract address on BaseScan:
+       ```
+       https://sepolia.basescan.org/address/YOUR_CONTRACT_ADDRESS
+       ```
+    2. Ensure the contract is deployed on the correct network
+    3. Update `config.json` with the correct address
+  </Accordion>
+</AccordionGroup>
+
+### Payout Not Executing Despite Drought
+
+**Symptoms:**
+- Workflow detects drought condition
+- Logs show "ALERT: Drought condition detected!"
+- But payout transaction doesn't execute or fails
+
+**Debugging steps:**
+
+<Steps>
+  <Step title="Check CRE wallet has gas">
+    ```bash
+    # Verify wallet balance on BaseScan
+    https://sepolia.basescan.org/address/YOUR_CRE_WALLET_ADDRESS
+    ```
+    If balance is low, send more Base Sepolia ETH.
+  </Step>
+
+  <Step title="Verify CRE address is set">
+    Ensure `setCREAddress()` was called with the correct address:
+    ```javascript
+    const creAddress = await contract.creAddress();
+    console.log("Set CRE Address:", creAddress);
+    console.log("Your CRE Address:", "YOUR_CRE_WALLET_ADDRESS");
+    // These should match!
+    ```
+  </Step>
+
+  <Step title="Check active policies exist">
+    Verify there are active policies to pay out:
+    ```javascript
+    const policyId = await contract.activePolicyIds(0);
+    const policy = await contract.policies(policyId);
+    console.log("Policy active:", policy.isActive);
+    ```
+  </Step>
+
+  <Step title="Check contract balance">
+    Ensure contract has enough ETH for the payout (10x premium):
+    ```javascript
+    const balance = await ethers.provider.getBalance("CONTRACT_ADDRESS");
+    console.log("Contract balance:", ethers.formatEther(balance), "ETH");
+    ```
+  </Step>
+
+  <Step title="Review workflow logs">
+    Look for specific error messages in the CRE workflow output:
+    ```bash
+    npx ts-node main.ts 2>&1 | tee workflow.log
+    ```
+  </Step>
+</Steps>
+
+## Frontend Issues
+
+### Cannot Connect Wallet
+
+**Symptoms:**
+- Wallet connection button doesn't work
+- MetaMask not detected
+- Connection fails silently
+
+**Solutions:**
+
+<AccordionGroup>
+  <Accordion title="Wrong network">
+    **Cause:** Wallet is connected to the wrong network.
+
+    **Solution:**
+    1. Switch to Base Sepolia in MetaMask
+    2. Add Base Sepolia network if not present:
+       - Network Name: Base Sepolia
+       - RPC URL: https://sepolia.base.org
+       - Chain ID: 84532
+       - Currency Symbol: ETH
+       - Block Explorer: https://sepolia.basescan.org
+  </Accordion>
+
+  <Accordion title="Wallet extension not installed">
+    **Cause:** No web3 wallet is installed in the browser.
+
+    **Solution:**
+    1. Install MetaMask, Coinbase Wallet, or another compatible wallet
+    2. Refresh the page after installation
+    3. Grant connection permission when prompted
+  </Accordion>
+</AccordionGroup>
+
+### Policy Purchase Fails
+
+**Symptoms:**
+- Transaction fails when purchasing a policy
+- "Transaction reverted" error
+- Insufficient funds error
+
+**Solutions:**
+
+1. **Insufficient balance:** Ensure your wallet has enough ETH for both the premium and gas fees
+2. **Wrong network:** Confirm you're on Base Sepolia
+3. **Contract interaction error:** Verify the contract address in frontend config matches the deployed contract
+
+## General Debugging Tips
+
+### Enable Verbose Logging
+
+Add detailed logging to the CRE workflow:
+
+```typescript cre/main.ts
+runtime.log(`Config: ${JSON.stringify(runtime.config)}`);
+runtime.log(`Median rainfall: ${medianRainfall} mm`);
+runtime.log(`Threshold: ${runtime.config.thresholdRainfall} mm`);
+runtime.log(`Contract address: ${contractAddress}`);
+```
+
+### Check System Requirements
+
+- Node.js version 18 or higher
+- npm or yarn installed
+- Sufficient disk space
+- Stable internet connection
+
+### Verify Installation
+
+```bash
+# Check Node.js version
+node --version  # Should be v18+
+
+# Check npm version
+npm --version
+
+# Reinstall dependencies if needed
+cd contracts && npm install
+cd ../cre && npm install
+cd ../frontend && npm install
+```
+
+## Getting Help
+
+If you're still experiencing issues:
+
+1. **Review the logs** carefully for specific error messages
+2. **Check the documentation** for the specific component (Hardhat, CRE SDK, etc.)
+3. **Search for similar issues** in the project's GitHub repository
+4. **Ask for help** in community channels with:
+   - Detailed error messages
+   - Steps to reproduce
+   - Your configuration (without private keys!)
+   - Relevant log output
+
+## Related Resources
+
+- [Deployment Guide](/resources/deployment-guide) - Complete deployment walkthrough
+- [Environment Variables](/resources/environment-variables) - Configuration reference
+- [FAQ](/resources/faq) - Frequently asked questions

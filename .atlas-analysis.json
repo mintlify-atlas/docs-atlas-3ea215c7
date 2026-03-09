@@ -1,0 +1,140 @@
+{
+  "projectType": "saas",
+  "projectName": "AridGuard",
+  "projectDescription": "Decentralized parametric drought insurance with automated payouts powered by Chainlink CRE and Base blockchain.",
+  "theme": "palm",
+  "primaryColor": "#92400e",
+  "lightColor": "#fef3c7",
+  "darkColor": "#78350f",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "how-it-works"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/parametric-insurance",
+              "features/automated-monitoring",
+              "features/instant-payouts"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "integration/wallet-connection",
+              "integration/policy-purchase",
+              "integration/monitoring-policies"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/smart-contracts",
+              "architecture/cre-workflow",
+              "architecture/frontend"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Smart Contracts",
+        "groups": [
+          {
+            "group": "Contract API",
+            "pages": [
+              "contracts/aridguard",
+              "contracts/deployment",
+              "contracts/security"
+            ]
+          },
+          {
+            "group": "Functions",
+            "pages": [
+              "contracts/functions/purchase-policy",
+              "contracts/functions/execute-payout",
+              "contracts/functions/set-cre-address"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CRE Workflow",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "cre/introduction",
+              "cre/configuration",
+              "cre/capabilities"
+            ]
+          },
+          {
+            "group": "Setup",
+            "pages": [
+              "cre/setup/installation",
+              "cre/setup/local-simulation",
+              "cre/setup/deployment"
+            ]
+          },
+          {
+            "group": "Integration",
+            "pages": [
+              "cre/integration/weather-api",
+              "cre/integration/consensus",
+              "cre/integration/evm-client"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Resources",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "resources/deployment-guide",
+              "resources/network-configuration",
+              "resources/environment-variables"
+            ]
+          },
+          {
+            "group": "Support",
+            "pages": [
+              "resources/troubleshooting",
+              "resources/faq"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Parametric drought insurance with automated claim processing",
+    "Chainlink CRE workflow for off-chain weather data monitoring",
+    "Smart contracts on Base Sepolia for instant payouts",
+    "Wallet integration via Coinbase OnchainKit",
+    "10x coverage payout when rainfall drops below threshold",
+    "Median aggregation for reliable weather data"
+  ],
+  "publicApiSurface": [
+    "purchasePolicy(lat, long) - Purchase drought insurance policy",
+    "executePayout(policyId) - Trigger payout for drought condition",
+    "setCREAddress(address) - Set authorized CRE runtime address",
+    "policies(policyId) - View policy details",
+    "activePolicyIds(index) - Get active policy IDs",
+    "CronCapability.trigger() - Schedule workflow execution",
+    "HTTPClient.sendRequest() - Fetch weather data",
+    "EVMClient.callContract() - Read contract state",
+    "EVMClient.report() - Execute contract transaction"
+  ]
+}
